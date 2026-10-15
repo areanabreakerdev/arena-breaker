@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arena Breaker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: "Bahnschrift", "Segoe UI", Arial, sans-serif; color: #fff; user-select: none; }
+  canvas { display: block; }
+  .emoji, .av { font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+  #hud > * { position: fixed; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+
+  /* health / ammo */
+  #hpwrap { left: 24px; bottom: 24px; width: 300px; }
+  #hpbar { height: 14px; background: rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.7); }
+  #hpfill { height: 100%; width: 100%; background: linear-gradient(90deg,#d9362b,#f08a2c); transition: width .15s; }
+  #hptext { font-size: 20px; letter-spacing: 2px; margin-bottom: 4px; }
+  #ammowrap { right: 28px; bottom: 24px; text-align: right; }
+  #ammo { font-size: 44px; font-weight: 700; letter-spacing: 2px; }
+  #ammo small { font-size: 22px; opacity: .7; }
+  #nades { font-size: 18px; letter-spacing: 2px; opacity: .9; }
+
+  /* top-left stats */
+  #topleft { left: 24px; top: 18px; }
+  #wave { font-size: 22px; letter-spacing: 4px; font-weight: 700; color: #ff9a2e; }
+  #score { font-size: 17px; letter-spacing: 2px; opacity: .95; margin-top: 2px; }
+
+  /* round timer */
+  #left { left: 50%; top: 10px; transform: translateX(-50%); font-size: 44px; font-weight: 800; letter-spacing: 4px; padding: 0 18px; background: rgba(0,0,0,.35); border-radius: 10px; }
+  #left.warn { color: #ff5a4a; animation: pulse2 .5s infinite alternate; }
+  @keyframes pulse2 { from { transform: translateX(-50%) scale(1); } to { transform: translateX(-50%) scale(1.08); } }
+
+  /* leaderboard */
+  #board { right: 18px; top: 14px; width: 262px; background: rgba(0,0,0,.45); border-radius: 10px; padding: 8px 10px; font-size: 15px; }
+  #board .hd, #board .row { display: flex; align-items: center; gap: 8px; height: 30px; }
+  #board .hd { font-size: 12px; letter-spacing: 2px; opacity: .7; height: 20px; }
+  #board .rk { width: 16px; text-align: center; opacity: .8; }
+  #board .nm { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #board .k, #board .d { width: 30px; text-align: right; font-weight: 700; }
+  #board .d { opacity: .65; font-weight: 400; }
+  #board .row.me { background: rgba(255,154,46,.25); border-radius: 6px; }
+  #board .row.out { opacity: .45; }
+  .av { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(255,255,255,.75); font-size: 15px; line-height: 1; box-sizing: border-box; flex: none; }
+  .av.sm { width: 22px; height: 22px; font-size: 12px; }
+
+  /* kill feed */
+  #feed { left: 24px; top: 92px; display: flex; flex-direction: column; gap: 4px; }
+  #feed .fe { display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.4); border-radius: 6px; padding: 3px 8px; font-size: 15px; width: fit-content; }
+  #feed .fe .me { color: #ffb347; font-weight: 700; }
+
+  /* crosshair + markers */
+  #crosshair { left: 50%; top: 50%; width: 30px; height: 30px; transform: translate(-50%,-50%); }
+  #crosshair i { position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
+  #crosshair .t, #crosshair .b { width: 2px; height: 8px; left: calc(50% - 1px); }
+  #crosshair .l, #crosshair .r { height: 2px; width: 8px; top: calc(50% - 1px); }
+  #crosshair .t { top: 0; } #crosshair .b { bottom: 0; } #crosshair .l { left: 0; } #crosshair .r { right: 0; }
+  #hitmarker { left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%,-50%) rotate(45deg); opacity: 0; }
+  #hitmarker::before, #hitmarker::after { content: ""; position: absolute; background: #fff; }
+  #hitmarker::before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #hitmarker::after { top: 12px; left: 0; height: 2px; width: 26px; }
+  #hitmarker.show { opacity: 1; }
+  #hitmarker.kill::before, #hitmarker.kill::after { background: #ff3b30; }
+
+  /* damage direction arrow */
+  #dmgdir { left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transform: translate(-50%,-50%); }
+  #dmgdir i { position: absolute; left: -45px; top: -150px; width: 90px; height: 14px; border-radius: 8px; background: linear-gradient(90deg, rgba(255,40,30,0), rgba(255,40,30,.95), rgba(255,40,30,0)); }
+
+  #toast { left: 50%; top: 62%; transform: translateX(-50%); font-size: 26px; font-weight: 800; letter-spacing: 3px; opacity: 0; transition: opacity .2s; color: #ffd24a; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+  #banner { left: 50%; top: 22%; transform: translateX(-50%); font-size: 46px; font-weight: 800; letter-spacing: 8px; opacity: 0; transition: opacity .4s; text-align: center; white-space: nowrap; }
+  #banner.show { opacity: 1; }
+  #vignette { inset: 0; background: radial-gradient(ellipse at center, rgba(180,0,0,0) 45%, rgba(200,0,0,.75) 100%); opacity: 0; }
+
+  /* menu / pause / results */
+  #overlay { position: fixed; inset: 0; background: rgba(5,8,12,.86); display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; overflow: auto; }
+  #overlay.hidden { display: none; }
+  #panel { max-width: 720px; padding: 24px; }
+  #panel h1 { font-size: 56px; letter-spacing: 10px; margin: 0 0 6px; color: #ff9a2e; }
+  #panel h2 { font-size: 22px; letter-spacing: 3px; margin: 0 0 20px; font-weight: 400; line-height: 1.5; }
+  #controls { margin: 0 auto 18px; border-collapse: collapse; font-size: 14px; text-align: left; }
+  #controls td { padding: 1px 12px; }
+  #controls td:first-child { color: #ff9a2e; font-weight: 700; text-align: right; }
+  .res { margin: 0 auto 22px; border-collapse: collapse; font-size: 18px; min-width: 420px; }
+  .res th { font-size: 12px; letter-spacing: 2px; opacity: .6; padding: 4px 12px; text-align: left; }
+  .res td { padding: 5px 12px; text-align: left; }
+  .res td:nth-child(n+4), .res th:nth-child(n+4) { text-align: right; }
+  .res tr.me td { background: rgba(255,154,46,.25); }
+  #mapbox { margin: 0 auto 18px; }
+  #mapbox .lbl { font-size: 13px; letter-spacing: 4px; opacity: .7; margin-bottom: 8px; }
+  #maps { display: flex; gap: 12px; justify-content: center; }
+  .mapcard { width: 200px; padding: 10px 10px 12px; box-sizing: border-box; border: 2px solid rgba(255,255,255,.22); border-radius: 12px; background: rgba(255,255,255,.04); cursor: pointer; text-align: left; transition: transform .12s, border-color .12s, background .12s; }
+  .mapcard:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.6); }
+  .mapcard.sel { border-color: #ff9a2e; background: rgba(255,154,46,.16); box-shadow: 0 0 18px rgba(255,154,46,.35); }
+  .mapcard .sw { height: 58px; border-radius: 7px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; font-size: 32px; }
+  .mapcard .mn { font-size: 14px; font-weight: 800; letter-spacing: 2px; }
+  .mapcard .md { font-size: 12px; opacity: .78; margin-top: 4px; line-height: 1.35; }
+  #panel .cta { font-size: 22px; letter-spacing: 4px; animation: pulse 1.2s infinite alternate; }
+  @keyframes pulse { from { opacity: .45; } to { opacity: 1; } }
+
+  #slots { margin-top: 6px; font-size: 14px; letter-spacing: 1px; }
+  #slots span { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 6px; opacity: .55; }
+  #slots span.on { opacity: 1; background: rgba(255,154,46,.35); }
+  #scope { display: none; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at center, transparent 0, transparent 30vh, #000 30.5vh); }
+  #scope::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; }
+  #scope::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: #000; }
+  #optbox { margin: 0 auto 16px; max-width: 760px; font-size: 13px; }
+  #optbox .orow { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; justify-content: center; margin-bottom: 8px; }
+  #optbox b { font-size: 11px; letter-spacing: 2px; opacity: .7; }
+  #optbox .opt { background: rgba(255,255,255,.06); color: #fff; border: 2px solid rgba(255,255,255,.22); border-radius: 8px; padding: 4px 12px; cursor: pointer; font-weight: 700; letter-spacing: 1px; }
+  #optbox .opt.on { border-color: #ff9a2e; background: rgba(255,154,46,.25); }
+  #optbox select, #optbox input[type=text], #optbox input:not([type]) { background: #1b1d22; color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; padding: 3px 6px; }
+  #optbox input:not([type]) { width: 90px; }
+  #admin { display: none; position: fixed; top: 60px; left: 20px; z-index: 50; width: 280px; padding: 14px; background: rgba(10,10,14,.94); border: 2px solid #ff3b3b; border-radius: 10px; color: #fff; font-size: 13px; }
+  #admin h3 { margin: 0 0 10px; color: #ff6b6b; letter-spacing: 3px; }
+  #admin label { display: block; margin: 5px 0; cursor: pointer; }
+  #admin input[type=password] { width: 170px; padding: 4px; }
+  #admin button { margin: 4px 4px 4px 0; padding: 4px 10px; cursor: pointer; }
+  #admin small { display: block; margin-top: 8px; opacity: .6; }
+  #amsg { color: #ff6b6b; margin-top: 6px; }
+  #adminbtn { position: fixed; top: 14px; left: 20px; z-index: 40; padding: 8px 16px; background: rgba(255,59,59,.18); color: #ff8a8a; border: 2px solid #ff3b3b; border-radius: 8px; font-weight: 800; letter-spacing: 3px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="topleft"><div id="wave">FREE FOR ALL</div><div id="score"></div></div>
+  <div id="left">3:00</div>
+  <div id="board"></div>
+  <div id="feed"></div>
+  <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+  <div id="hitmarker"></div>
+  <div id="dmgdir"><i></i></div>
+  <div id="toast"></div>
+  <div id="banner"></div>
+  <div id="hpwrap"><div id="hptext">100</div><div id="hpbar"><div id="hpfill"></div></div></div>
+  <div id="ammowrap"><div id="ammo">30 <small>/ 120</small></div><div id="nades">GRENADES 3</div><div id="slots"></div></div>
+  <div id="scope"></div>
+  <div id="vignette"></div>
+</div>
+<div id="admin"></div>
+<button id="adminbtn">ADMIN (F4)</button>
+<div id="overlay">
+  <div id="panel">
+    <h1>ARENA BREAKER</h1>
+    <h2 id="ovsub">Free-for-all against 7 bots.<br>Most kills wins.</h2>
+    <div id="mapbox"><div class="lbl">CHOOSE YOUR MAP  (CLICK A CARD OR PRESS 1 / 2 / 3)</div><div id="maps"></div></div>
+    <div id="optbox"></div>
+    <div id="results"></div>
+    <table id="controls">
+      <tr><td>WASD</td><td>Move</td></tr>
+      <tr><td>SHIFT</td><td>Sprint</td></tr>
+      <tr><td>SPACE</td><td>Jump</td></tr>
+      <tr><td>C</td><td>Slide (while running, S cancels it)</td></tr>
+      <tr><td>SPACE in slide</td><td>Slide jump (big momentum leap)</td></tr>
+      <tr><td>LEFT CLICK</td><td>Fire / swing melee (bullets have travel time and drop)</td></tr>
+      <tr><td>RIGHT CLICK</td><td>Aim down sights</td></tr>
+      <tr><td>1 / 2 / 3, WHEEL, Q</td><td>Primary / Secondary / Melee, cycle, quick-swap</td></tr>
+      <tr><td>R</td><td>Reload</td></tr>
+      <tr><td>G</td><td>Throw grenade</td></tr>
+      <tr><td>Pickups</td><td>Green cross = health, yellow box = ammo</td></tr>
+      <tr><td>F3 / F4 / F11 / F12</td><td>Debug readout / Admin panel (B = aim lock once unlocked) / Fullscreen / Dev console</td></tr>
+    </table>
+    <div class="cta" id="ovcta">PICK A MAP + LOADOUT, THEN CLICK HERE TO START</div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./node_modules/three/build/three.module.js",
+    "cannon-es": "./node_modules/cannon-es/dist/cannon-es.js"
+  }
+}
+</script>
+<script type="module" src="./game.js"></script>
+</body>
+</html>
