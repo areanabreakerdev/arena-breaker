@@ -863,6 +863,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const genCode = () => Array.from({ length: 6 }, () => CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0]).join('');
 const netEl = $('netstat'), codeEl = $('mycode'), joinIn = $('joincode');
 const netStatus = (t) => { netEl.textContent = t; };
+const codeHud = $('codehud');
 const netPlayers = () => 'Players: YOU' + [...net.remotes.values()].map((r) => ', ' + r.info.name).join('');
 function infoOf(id) { return id === net.myId ? playerInfo : net.remotes.has(id) ? net.remotes.get(id).info : null; }
 function netBroadcast(m, except) {
@@ -924,14 +925,22 @@ function netHandle(m) {
 function hostGot(c, m) {
   if (m.t === 'hello') {
     if (c._abid) return;
-    if (state !== 'menu' || net.client || net.remotes.size >= 7) { c.send({ t: 'full' }); setTimeout(() => { try { c.close(); } catch (e) { /* ignore */ } }, 400); return; }
+    if (state === 'over' || net.client || net.remotes.size >= 7) { c.send({ t: 'full' }); setTimeout(() => { try { c.close(); } catch (e) { /* ignore */ } }, 400); return; }
+    if (state === 'play' && net.remotes.size === 0) {
+      // a friend joined a bot match: the bots run only on the host, so they leave and it becomes a players-only match
+      for (const b of enemies.slice()) if (!b.remote) { world.removeBody(b.body); scene.remove(b.group); b.info.enemy = null; }
+      for (let i = enemies.length - 1; i >= 0; i--) if (!enemies[i].remote) enemies.splice(i, 1);
+      respawns.length = 0;
+      for (let i = 1; i < roster.length; i++) if (!roster[i].remote) roster[i].hidden = true;
+      toast('FRIEND JOINED - BOTS REMOVED');
+    }
     const id = 'C' + (++net.nextId);
     c._abid = id;
     net.conns.set(id, c);
     net.host = true; net.on = true;
     const others = [...net.remotes.values()].map((r) => ({ id: r.id, name: r.info.name, emoji: r.info.emoji }));
     addRemote(id, m.name, m.emoji);
-    c.send({ t: 'welcome', you: id, map: selectedMap, time: prefs.time, players: [{ id: 'H', name: playerInfo.name, emoji: playerInfo.emoji }, ...others] });
+    c.send({ t: 'welcome', you: id, map: selectedMap, time: prefs.time, started: state === 'play', roundT, players: [{ id: 'H', name: playerInfo.name, emoji: playerInfo.emoji }, ...others] });
     netBroadcast({ t: 'join', id, name: m.name, emoji: m.emoji }, id);
     netStatus(netPlayers() + '  -  START when ready');
     return;
@@ -949,7 +958,8 @@ function hostGot(c, m) {
 function clientGot(m) {
   if (m.t === 'welcome') {
     net.on = true; net.client = true; net.myId = m.you;
-    net.pending = { time: m.time };
+    net.pending = { time: m.time, started: !!m.started, roundT: m.roundT };
+    codeHud.style.display = 'none';
     for (const p of m.players) addRemote(p.id, p.name, p.emoji);
     selectMap(m.map);
     netStatus('Joined! ' + netPlayers() + '  -  click to START');
@@ -976,6 +986,7 @@ function netInit() {
   net.code = genCode();
   codeEl.textContent = net.code;
   try { net.peer = new Peer('abreaker-' + net.code); } catch (e) { codeEl.textContent = 'OFFLINE'; return; }
+  net.peer.on('open', () => { codeHud.textContent = 'ROOM CODE  ' + net.code + '   -  friends can join with it'; $('roomcode').textContent = net.code; });
   net.peer.on('open', () => netStatus('Share your code, or enter a friend\'s code and press JOIN.'));
   net.peer.on('error', (e) => {
     if (e.type === 'unavailable-id') { try { net.peer.destroy(); } catch (x) { /* ignore */ } netInit(); }
@@ -993,6 +1004,25 @@ function netInit() {
     });
   });
 }
+function copyCode() {
+  const txt = net.code;
+  if (!txt) return;
+  const done = () => toast('ROOM CODE COPIED: ' + txt);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(done, () => { fallbackCopy(txt); done(); }); return; }
+  } catch (e) { /* fall through */ }
+  fallbackCopy(txt); done();
+}
+function fallbackCopy(txt) {
+  const ta = document.createElement('textarea');
+  ta.value = txt;
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+  ta.remove();
+}
+$('copybtn').addEventListener('click', copyCode);
+$('copybtn2').addEventListener('click', copyCode);
 $('joinbtn').addEventListener('click', () => netJoin(joinIn.value));
 joinIn.addEventListener('input', () => { joinIn.value = joinIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 joinIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') netJoin(joinIn.value); });
@@ -2227,7 +2257,7 @@ function startMatch() {
   resetInventory();
   hud.wave.textContent = 'FREE FOR ALL - ' + MAPS[selectedMap].name;
   state = 'play';
-  roundT = ROUND_TIME;
+  roundT = net.client && net.pending && net.pending.started ? net.pending.roundT : ROUND_TIME;
   gameTime = 0;
   lastTickSec = -1;
   const pool = SPAWNS.slice().sort(() => Math.random() - 0.5);
@@ -2309,11 +2339,12 @@ document.addEventListener('pointerlockchange', () => {
     hud.results.innerHTML = '';
     hud.controls.style.display = '';
     hud.overlay.classList.remove('hidden');
+    $('roombox').style.display = net.client ? 'none' : 'block';
     clearInput();
   }
 });
 hud.overlay.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#maps, #optbox, #netbox, #adminbtn')) return; // picking a map doesn't start the match
+  if (e.target && e.target.closest && e.target.closest('#maps, #optbox, #netbox, #roombox, #adminbtn')) return; // picking a map doesn't start the match
   ac();
   if (state === 'over') { location.reload(); return; }
   const p = renderer.domElement.requestPointerLock();
@@ -2326,6 +2357,7 @@ function showPause() {
   hud.results.innerHTML = '';
   hud.controls.style.display = '';
   hud.overlay.classList.remove('hidden');
+  $('roombox').style.display = net.client ? 'none' : 'block';
   clearInput();
 }
 window.AB = {

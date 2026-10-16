@@ -123,6 +123,10 @@
   #netbox input { width: 110px; padding: 4px 6px; background: #1b1d22; color: #fff; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; letter-spacing: 3px; text-transform: uppercase; }
   #netbox button { margin-left: 6px; padding: 4px 12px; cursor: pointer; font-weight: 700; }
   #netstat { margin-top: 5px; opacity: .8; font-size: 12px; }
+  #codehud { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 13px; letter-spacing: 3px; color: #7fe3ff; opacity: .85; text-shadow: 0 1px 4px #000; pointer-events: none; }
+  #roombox { display: none; margin: 0 auto 12px; font-size: 16px; letter-spacing: 2px; }
+  #roombox span { font-size: 26px; font-weight: 800; letter-spacing: 7px; color: #7fe3ff; user-select: text; }
+  #roombox button { margin-left: 8px; padding: 4px 12px; cursor: pointer; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -139,6 +143,7 @@
   <div id="hpwrap"><div id="hptext">100</div><div id="hpbar"><div id="hpfill"></div></div></div>
   <div id="ammowrap"><div id="ammo">30 <small>/ 120</small></div><div id="nades">GRENADES 3</div><div id="slots"></div></div>
   <div id="scope"></div>
+  <div id="codehud"></div>
   <div id="vignette"></div>
 </div>
 <div id="admin"></div>
@@ -148,7 +153,8 @@
     <h1>ARENA BREAKER</h1>
     <h2 id="ovsub">Free-for-all against 7 bots.<br>Most kills wins.</h2>
     <div id="mapbox"><div class="lbl">CHOOSE YOUR MAP  (CLICK A CARD OR PRESS 1 / 2 / 3)</div><div id="maps"></div></div>
-    <div id="netbox"><b>ONLINE</b> &nbsp; YOUR CODE: <span id="mycode">......</span> &nbsp; <input id="joincode" maxlength="6" placeholder="FRIEND CODE" autocomplete="off"><button id="joinbtn">JOIN</button><div id="netstat">Connecting to the online service...</div></div>
+    <div id="roombox">ROOM CODE: <span id="roomcode">......</span> <button id="copybtn2">COPY</button></div>
+    <div id="netbox"><b>ONLINE</b> &nbsp; ROOM CODE: <span id="mycode">......</span> <button id="copybtn">COPY</button> &nbsp; <input id="joincode" maxlength="6" placeholder="FRIEND CODE" autocomplete="off"><button id="joinbtn">JOIN</button><div id="netstat">Connecting to the online service...</div></div>
     <div id="optbox"></div>
     <div id="results"></div>
     <table id="controls">

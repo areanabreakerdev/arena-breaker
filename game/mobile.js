@@ -95,7 +95,7 @@
   // overlay tap = start / resume (pointer lock does not exist on phones)
   const overlay = document.getElementById('overlay');
   overlay.addEventListener('click', (e) => {
-    if (e.target.closest && e.target.closest('#maps, #optbox, #netbox, #adminbtn, #admin')) return;
+    if (e.target.closest && e.target.closest('#maps, #optbox, #netbox, #roombox, #adminbtn, #admin')) return;
     e.stopImmediatePropagation();
     AB.start();
   }, true);
