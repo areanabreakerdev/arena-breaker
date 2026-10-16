@@ -2096,7 +2096,7 @@ function fire() {
   player.heat = Math.min(1, player.heat + (w.auto ? 0.1 : 0.25));
   player.kickBack = 1;
   player.flash = 0.05;
-  if (curId() === 'admin' || curId() === 'neon') customShot(curId()); else sfx.shot();
+  sfx.shot();
 }
 
 function finishReload() {

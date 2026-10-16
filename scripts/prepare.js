@@ -7,7 +7,6 @@ fs.rmSync(www, { recursive: true, force: true });
 fs.mkdirSync(path.join(www, 'lib'), { recursive: true });
 const cp = (a, b) => fs.cpSync(path.join(root, a), path.join(www, b), { recursive: true });
 cp('game/game.js', 'game.js');
-cp('game/sounds', 'sounds');
 cp('game/mobile.js', 'mobile.js');
 cp('game/mobile.css', 'mobile.css');
 cp('node_modules/three/build', 'lib/three');
