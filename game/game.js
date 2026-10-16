@@ -857,6 +857,147 @@ optbox.addEventListener('input', (e) => {
 });
 renderOpts();
 
+/* ---- online play: PeerJS (WebRTC) with the host relaying, PC and phone together ---- */
+const net = { on: false, host: false, client: false, peer: null, conns: new Map(), conn: null, myId: 'H', code: '', remotes: new Map(), nextId: 0, sendT: 0, timeT: 0, pending: null };
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const genCode = () => Array.from({ length: 6 }, () => CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0]).join('');
+const netEl = $('netstat'), codeEl = $('mycode'), joinIn = $('joincode');
+const netStatus = (t) => { netEl.textContent = t; };
+const netPlayers = () => 'Players: YOU' + [...net.remotes.values()].map((r) => ', ' + r.info.name).join('');
+function infoOf(id) { return id === net.myId ? playerInfo : net.remotes.has(id) ? net.remotes.get(id).info : null; }
+function netBroadcast(m, except) {
+  for (const [id, c] of net.conns) if (id !== except && c.open) c.send(m);
+}
+net.send = (m) => {
+  m.id = net.myId;
+  if (net.host) netBroadcast(m);
+  else if (net.conn && net.conn.open) net.conn.send(m);
+};
+net.sendTo = (to, m) => {
+  m.to = to; m.id = net.myId;
+  if (net.host) { const c = net.conns.get(to); if (c && c.open) c.send(m); }
+  else if (net.conn && net.conn.open) net.conn.send(m);
+};
+function ensureBot(r) {
+  if (r.bot || state !== 'play') return;
+  const b = new Bot(r.info, r.st ? r.st.x : 0, r.st ? r.st.z : 0);
+  b.netT = r.st;
+  enemies.push(b);
+  r.bot = b;
+}
+function addRemote(id, name, emoji) {
+  let info = null;
+  for (let i = 1; i < roster.length; i++) if (!roster[i].remote) { info = roster[i]; break; }
+  if (!info) return null;
+  Object.assign(info, { remote: true, netId: id, name: String(name || 'Player').slice(0, 10), emoji: emoji || '🎯', kills: 0, deaths: 0, streak: 0, hidden: false, netDead: false });
+  const r = { id, info, bot: null, st: null };
+  net.remotes.set(id, r);
+  ensureBot(r);
+  return r;
+}
+function removeRemote(id) {
+  const r = net.remotes.get(id);
+  if (!r) return;
+  if (r.bot) {
+    world.removeBody(r.bot.body);
+    scene.remove(r.bot.group);
+    const i = enemies.indexOf(r.bot);
+    if (i >= 0) enemies.splice(i, 1);
+  }
+  r.info.enemy = null; r.info.remote = false; r.info.hidden = true; r.info.netId = null;
+  net.remotes.delete(id);
+  if (net.host && net.remotes.size === 0) net.on = false;
+  if (state === 'menu') netStatus(net.remotes.size ? netPlayers() : 'Share your code, or enter a friend\'s code and press JOIN.');
+}
+function netHandle(m) {
+  const r = net.remotes.get(m.id);
+  switch (m.t) {
+    case 'join': addRemote(m.id, m.name, m.emoji); if (state === 'menu') netStatus(netPlayers() + '  -  START when ready'); break;
+    case 'leave': removeRemote(m.id); break;
+    case 'st': if (r) { r.st = m; if (r.bot) r.bot.netT = m; } break;
+    case 'shot': if (r && state === 'play') spawnBullet(new CANNON.Vec3(m.p[0], m.p[1], m.p[2]), new CANNON.Vec3(m.v[0], m.v[1], m.v[2]), r.info, m.d); break;
+    case 'hit': if (r && m.to === net.myId && state === 'play') hurtPlayer(m.dmg, r.info, r.st ? { x: r.st.x, z: r.st.z } : null); break;
+    case 'died': { const v = infoOf(m.id); if (v && state === 'play') registerKill(infoOf(m.k) || v, v, m.kind || 'bullet'); break; }
+    case 'time': if (state === 'play') roundT = m.r; break;
+  }
+}
+function hostGot(c, m) {
+  if (m.t === 'hello') {
+    if (c._abid) return;
+    if (state !== 'menu' || net.client || net.remotes.size >= 7) { c.send({ t: 'full' }); setTimeout(() => { try { c.close(); } catch (e) { /* ignore */ } }, 400); return; }
+    const id = 'C' + (++net.nextId);
+    c._abid = id;
+    net.conns.set(id, c);
+    net.host = true; net.on = true;
+    const others = [...net.remotes.values()].map((r) => ({ id: r.id, name: r.info.name, emoji: r.info.emoji }));
+    addRemote(id, m.name, m.emoji);
+    c.send({ t: 'welcome', you: id, map: selectedMap, time: prefs.time, players: [{ id: 'H', name: playerInfo.name, emoji: playerInfo.emoji }, ...others] });
+    netBroadcast({ t: 'join', id, name: m.name, emoji: m.emoji }, id);
+    netStatus(netPlayers() + '  -  START when ready');
+    return;
+  }
+  if (!c._abid) return;
+  m.id = c._abid;
+  if (m.to !== undefined) {
+    if (m.to === net.myId) netHandle(m);
+    else { const t = net.conns.get(m.to); if (t && t.open) t.send(m); }
+    return;
+  }
+  netHandle(m);
+  netBroadcast(m, m.id);
+}
+function clientGot(m) {
+  if (m.t === 'welcome') {
+    net.on = true; net.client = true; net.myId = m.you;
+    net.pending = { time: m.time };
+    for (const p of m.players) addRemote(p.id, p.name, p.emoji);
+    selectMap(m.map);
+    netStatus('Joined! ' + netPlayers() + '  -  click to START');
+    return;
+  }
+  if (m.t === 'full') { netStatus('Game full or already started.'); return; }
+  netHandle(m);
+}
+function netJoin(raw) {
+  const code = String(raw || '').trim().toUpperCase();
+  if (!net.peer || net.on) return;
+  if (code.length !== 6) { netStatus('Codes are 6 letters/numbers.'); return; }
+  if (code === net.code) { netStatus('That is your own code.'); return; }
+  netStatus('Connecting...');
+  const c = net.peer.connect('abreaker-' + code, { reliable: true });
+  const to = setTimeout(() => { if (!net.on) { netStatus('Could not connect. Check the code.'); try { c.close(); } catch (e) { /* ignore */ } } }, 12000);
+  c.on('open', () => { net.conn = c; c.send({ t: 'hello', name: playerInfo.name, emoji: playerInfo.emoji }); });
+  c.on('data', clientGot);
+  c.on('close', () => { clearTimeout(to); if (net.client) { netStatus('Disconnected from host.'); if (state === 'play') toast('HOST LEFT'); } });
+  c.on('error', () => netStatus('Connection error.'));
+}
+function netInit() {
+  if (typeof Peer === 'undefined') { codeEl.textContent = 'OFFLINE'; netStatus('Online play needs an internet connection.'); return; }
+  net.code = genCode();
+  codeEl.textContent = net.code;
+  try { net.peer = new Peer('abreaker-' + net.code); } catch (e) { codeEl.textContent = 'OFFLINE'; return; }
+  net.peer.on('open', () => netStatus('Share your code, or enter a friend\'s code and press JOIN.'));
+  net.peer.on('error', (e) => {
+    if (e.type === 'unavailable-id') { try { net.peer.destroy(); } catch (x) { /* ignore */ } netInit(); }
+    else if (e.type === 'peer-unavailable') netStatus('No game found with that code.');
+    else netStatus('Network problem: ' + e.type);
+  });
+  net.peer.on('connection', (c) => {
+    c.on('data', (m) => hostGot(c, m));
+    c.on('close', () => {
+      const id = c._abid;
+      if (!id) return;
+      net.conns.delete(id);
+      removeRemote(id);
+      netBroadcast({ t: 'leave', id });
+    });
+  });
+}
+$('joinbtn').addEventListener('click', () => netJoin(joinIn.value));
+joinIn.addEventListener('input', () => { joinIn.value = joinIn.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+joinIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') netJoin(joinIn.value); });
+netInit();
+
 
 let toastTimer = 0, bannerTimer = 0, hitTimer = 0;
 function toast(t) {
@@ -882,8 +1023,8 @@ function setHud(key, target, prop, val) {
   if (hudCache[key] !== val) { hudCache[key] = val; target[prop] = val; }
 }
 const sortedRoster = () =>
-  roster.slice().sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || (a.isPlayer ? -1 : b.isPlayer ? 1 : 0));
-const isAlive = (info) => (info.isPlayer ? !player.dead : !!info.enemy);
+  roster.filter((r) => !r.hidden).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || (a.isPlayer ? -1 : b.isPlayer ? 1 : 0));
+const isAlive = (info) => (info.isPlayer ? !player.dead : info.remote ? !info.netDead : !!info.enemy);
 
 const KIND_ICON = { bullet: '🔫', head: '🎯', blast: '💥', self: '💀' };
 const feed = [];
@@ -1002,6 +1143,7 @@ function tracerMat(info) {
   return m;
 }
 function spawnBullet(pos, vel, owner, dmg, origin) {
+  if (net.on && owner === playerInfo) net.send({ t: 'shot', p: [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)], v: [+vel.x.toFixed(1), +vel.y.toFixed(1), +vel.z.toFixed(1)], d: dmg });
   const mesh = new THREE.Mesh(owner.isPlayer ? tracerGeoP : tracerGeoE, tracerMat(owner));
   mesh.visible = !owner.isPlayer;
   scene.add(mesh);
@@ -1368,6 +1510,7 @@ function buildBotMesh(e) {
 
 /* ------------------------------ spawning helpers ------------------------------ */
 function chestOf(info) {
+  if (info.netDead) return null;
   if (info.isPlayer) {
     if (player.dead) return null;
     const b = player.body.position;
@@ -1435,6 +1578,15 @@ class Bot {
     });
     body.userData = { type: 'enemy', enemy: this };
     this.body = body;
+    if (info.remote) {
+      this.remote = true;
+      this.netT = null;
+      this.netFirst = true;
+      body.type = CANNON.Body.KINEMATIC;
+      body.mass = 0;
+      body.updateMassProperties();
+      body.collisionFilterMask = 0;
+    }
     world.addBody(body);
     this.group = buildBotMesh(this);
     scene.add(this.group);
@@ -1465,7 +1617,33 @@ class Bot {
     if (cands.length) this.target = cands[0].info; // nothing visible: chase the closest
   }
 
+  netStep(dt) {
+    const m = this.netT, p = this.body.position;
+    if (!m) { this.group.visible = false; return; }
+    const dead = !!m.d;
+    this.info.netDead = dead;
+    this.group.visible = !dead;
+    this.body.collisionFilterGroup = dead ? 0 : GRP.ENEMY;
+    const ty = m.y - 0.5 + FEET;
+    if (this.netFirst) { p.set(m.x, ty, m.z); this.netFirst = false; }
+    const k = Math.min(1, 12 * dt);
+    const ox = p.x, oz = p.z;
+    p.x += (m.x - p.x) * k; p.y += (ty - p.y) * k; p.z += (m.z - p.z) * k;
+    this.body.aabbNeedsUpdate = true;
+    const sp = Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-3);
+    this.yaw = lerpAngle(this.yaw, m.yw + Math.PI, k);
+    this.walkT += dt * sp * 2.4;
+    const amp = Math.min(1, sp / 2) * 0.7;
+    this.legL.rotation.x = Math.sin(this.walkT) * amp;
+    this.legR.rotation.x = -Math.sin(this.walkT) * amp;
+    this.flinch = Math.max(0, this.flinch - dt * 3);
+    this.group.position.set(p.x, p.y, p.z);
+    this.group.rotation.set(-this.flinch * 0.35, this.yaw, 0);
+    this.tag.visible = camera.position.distanceTo(this.group.position) < 45;
+  }
+
   update(dt) {
+    if (this.remote) { this.netStep(dt); return; }
     const p = this.body.position;
     const v = this.body.velocity;
     if (admin.freeze && !this.dead) { v.x = 0; v.z = 0; return; }
@@ -1601,6 +1779,7 @@ class Bot {
 }
 
 function hitEnemy(e, dmg, point, dir, head, fromBlast = false, attacker = playerInfo) {
+  if (e.remote) { if (attacker === playerInfo && !fromBlast) hitMarker(false); return; }
   if (e.dead || e.invuln > 0) return;
   if (attacker === e.info && !fromBlast) return;
   if (admin.kill && attacker === playerInfo) dmg = 9999;
@@ -1768,6 +1947,7 @@ function playerDie(attacker, kind) {
   b.velocity.set(0, 0, 0);
 
   registerKill(attacker, playerInfo, kind);
+  if (net.on) net.send({ t: 'died', k: attacker === playerInfo ? net.myId : (attacker && attacker.netId) || null, kind });
   const who = attacker === playerInfo ? 'YOURSELF' : attacker.name.toUpperCase();
   banner(`ELIMINATED BY ${who}<br><span style="font-size:20px;letter-spacing:4px">RESPAWNING...</span>`, RESPAWN_TIME * 1000 - 200);
 }
@@ -1814,6 +1994,7 @@ function meleeSwing(w) {
     const dist = Math.hypot(vx, vy, vz);
     if (dist > w.range + 0.6) continue;
     if ((vx * d.x + vy * d.y + vz * d.z) / Math.max(dist, 0.001) < w.arc) continue;
+    if (e.remote) { if (net.on) net.sendTo(e.info.netId, { t: 'hit', dmg: w.dmg }); hitMarker(false); continue; }
     hitEnemy(e, w.dmg, new CANNON.Vec3(c.x, c.y, c.z), { x: d.x, y: d.y, z: d.z }, false, false, playerInfo);
     e.body.velocity.x += d.x * 5; e.body.velocity.z += d.z * 5;
     player.shake = Math.min(1, player.shake + 0.25);
@@ -2038,10 +2219,11 @@ function updatePlayer(dt) {
 
 /* ------------------------------ match flow ------------------------------ */
 function startMatch() {
-  ROUND_TIME = prefs.time;
+  ROUND_TIME = net.client && net.pending ? net.pending.time : prefs.time;
   buildMap(MAPS[selectedMap]);
   mapbox.style.display = 'none';
   optbox.style.display = 'none';
+  $('netbox').style.display = 'none';
   resetInventory();
   hud.wave.textContent = 'FREE FOR ALL - ' + MAPS[selectedMap].name;
   state = 'play';
@@ -2051,13 +2233,20 @@ function startMatch() {
   const pool = SPAWNS.slice().sort(() => Math.random() - 0.5);
   placePlayer(pool[0]);
   player.invuln = 3;
-  for (let i = 1; i < roster.length; i++) {
-    const s = pool[i % pool.length];
-    const bot = new Bot(roster[i], s.x, s.z);
-    bot.invuln = 3;
-    enemies.push(bot);
+  const mp = net.on && net.remotes.size > 0;
+  for (let i = 1; i < roster.length; i++) roster[i].hidden = mp ? !roster[i].remote : false;
+  if (mp) {
+    for (const r of net.remotes.values()) ensureBot(r);
+  } else {
+    net.on = false;
+    for (let i = 1; i < roster.length; i++) {
+      const s = pool[i % pool.length];
+      const bot = new Bot(roster[i], s.x, s.z);
+      bot.invuln = 3;
+      enemies.push(bot);
+    }
   }
-  banner(`${MAPS[selectedMap].name}<br><span style="font-size:20px;letter-spacing:4px">${prefs.time / 60} MIN  -  MOST KILLS WINS</span>`, 3500);
+  banner(`${MAPS[selectedMap].name}<br><span style="font-size:20px;letter-spacing:4px">${ROUND_TIME / 60} MIN  -  MOST KILLS WINS</span>`, 3500);
 }
 
 function endMatch() {
@@ -2124,7 +2313,7 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 hud.overlay.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#maps, #optbox, #adminbtn')) return; // picking a map doesn't start the match
+  if (e.target && e.target.closest && e.target.closest('#maps, #optbox, #netbox, #adminbtn')) return; // picking a map doesn't start the match
   ac();
   if (state === 'over') { location.reload(); return; }
   const p = renderer.domElement.requestPointerLock();
@@ -2360,6 +2549,15 @@ const gunBase = GUN_HIP.clone();
 /* ------------------------------ main update ------------------------------ */
 function update(dt) {
   gameTime += dt;
+  if (net.on && state === 'play') {
+    net.sendT -= dt;
+    if (net.sendT <= 0) {
+      net.sendT = 0.066;
+      const nb = player.body.position;
+      net.send({ t: 'st', x: +nb.x.toFixed(2), y: +nb.y.toFixed(2), z: +nb.z.toFixed(2), yw: +player.yaw.toFixed(3), d: player.dead ? 1 : 0 });
+    }
+    if (net.host) { net.timeT -= dt; if (net.timeT <= 0) { net.timeT = 1; net.send({ t: 'time', r: roundT }); } }
+  }
   if (admin.lock && admin.auth && state === 'play' && !player.dead && locked) aimbot();
   updatePlayer(dt);
   world.step(1 / 60, dt, 6);

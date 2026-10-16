@@ -6,7 +6,8 @@
     "@capacitor/android": "^6.1.2",
     "@capacitor/core": "^6.1.2",
     "cannon-es": "^0.20.0",
-    "three": "^0.170.0"
+    "three": "^0.170.0",
+    "peerjs": "^1.5.4"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2"
