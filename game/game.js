@@ -125,6 +125,7 @@ const crateMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 
 const barrelMat = new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.45, metalness: 0.45 });
 const wallMat = new THREE.MeshStandardMaterial({ color: 0x74777b, roughness: 0.9 });
 const coverMat = new THREE.MeshStandardMaterial({ color: 0x8a8d90, roughness: 0.9 });
+let coverTexSet = false;
 
 /* ------------------------------ physics world ------------------------------ */
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -GRAV, 0) });
@@ -221,7 +222,7 @@ const MAPS = [
       wall: 0x74777b, cover: 0x8a8d90,
       ground: { base: '#6b6f66', line: 'rgba(0,0,0,.35)' },
     },
-    crates: 9, barrels: 9, build: buildYard,
+    crates: 9, barrels: 9, build: buildYard, decor: yardDecor,
   },
   {
     id: 'docks', icon: '🚢', name: 'SUNSET DOCKS',
@@ -234,7 +235,7 @@ const MAPS = [
       wall: 0x5c4a42, cover: 0xa39a90,
       ground: { base: '#3d3d43', line: 'rgba(0,0,0,.3)' },
     },
-    crates: 6, barrels: 12, build: buildDocks,
+    crates: 6, barrels: 12, build: buildDocks, decor: docksDecor,
   },
   {
     id: 'ruins', icon: '🏛️', name: 'FROZEN RUINS',
@@ -247,7 +248,7 @@ const MAPS = [
       wall: 0x8d959d, cover: 0xa2a9b0,
       ground: { base: '#dbe5ed', line: 'rgba(110,135,160,.28)' },
     },
-    crates: 5, barrels: 6, build: buildRuins,
+    crates: 5, barrels: 6, build: buildRuins, decor: ruinsDecor,
   },
 ];
 
@@ -334,8 +335,8 @@ function buildDocks() {
       if (Math.random() < 0.14) continue; // random gaps keep the lanes interesting
       const x = cells[i] + rand(-1.2, 1.2), z = cells[j] + rand(-1.2, 1.2);
       const rot = (i + j) % 2 === 0 ? 0 : Math.PI / 2;
-      addCover(x, z, 7.2, 2.6, 2.5, pick(), rot);
-      if (Math.random() < 0.3) addStaticBox(x, 2.6 + 1.3, z, 7.2, 2.6, 2.5, pick(), rot); // stacked
+      decorContainer(addCover(x, z, 7.2, 2.6, 2.5, pick(), rot).mesh, 7.2);
+      if (Math.random() < 0.3) decorContainer(addStaticBox(x, 2.6 + 1.3, z, 7.2, 2.6, 2.5, pick(), rot).mesh, 7.2); // stacked
     }
   }
   for (let i = 0; i < 9; i++) { // low barriers you can jump over
@@ -358,7 +359,8 @@ function buildRuins() {
   for (let k = 0; k < 12; k++) { // ring of broken pillars
     const ang = (k / 12) * Math.PI * 2 + rand(-0.12, 0.12);
     const r = 21 + rand(-1.5, 1.5);
-    addCover(Math.cos(ang) * r, Math.sin(ang) * r, 1.5, rand(2.4, 5.2), 1.5, coverMat, -ang);
+    const ph = rand(2.4, 5.2), pm = addCover(Math.cos(ang) * r, Math.sin(ang) * r, 1.5, ph, 1.5, coverMat, -ang).mesh;
+    dbox(2, 0.35, 2, 0, -ph / 2 + 0.17, 0, coverMat, 0, false, pm); dbox(1.9, 0.3, 1.9, 0, ph / 2 + 0.1, 0, coverMat, 0, false, pm); dbox(1.6, 0.25, 0.4, 0.3, ph / 2 + 0.4, 0.3, coverMat, 0.5, false, pm);
   }
   for (let i = 0; i < 9; i++) { // low broken walls you can jump onto
     const s = randomSpot(1.6);
@@ -471,6 +473,182 @@ function placeSpawns() {
   for (let a = 0; SPAWNS.length < 8; a += 0.8) SPAWNS.push({ x: Math.cos(a) * 27, z: Math.sin(a) * 27 });
 }
 
+/* ---- map decoration: textured cover, painted ground, lamps, backdrops, weather (mostly visual, cheap shared geometry) ---- */
+const mapAnim = [];
+const UB = new THREE.BoxGeometry(1, 1, 1), UC = new THREE.CylinderGeometry(1, 1, 1, 12), US = new THREE.SphereGeometry(1, 10, 8), UK = new THREE.ConeGeometry(1, 1, 9);
+const dmats = {};
+function dmat(c, o) { const k = c + JSON.stringify(o || {}); return dmats[k] || (dmats[k] = new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.85 }, o || {}))); }
+function dput(geo, mat, x, y, z, sx, sy, sz, ry = 0, cast = false, parent = scene, rx = 0, rz = 0) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.rotation.set(rx, ry, rz);
+  m.castShadow = cast; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+const dbox = (w, h, d, x, y, z, mat, ry = 0, cast = false, parent = scene) => dput(UB, mat, x, y, z, w, h, d, ry, cast, parent);
+const dcyl = (r, h, x, y, z, mat, cast = false, parent = scene) => dput(UC, mat, x, y, z, r, h, r, 0, cast, parent);
+const dtex = {};
+function dTex(name, fn) { return dtex[name] || (dtex[name] = fn()); }
+const noise = (g, s, n, a = 0.1) => { for (let i = 0; i < n; i++) { g.fillStyle = Math.random() < 0.5 ? `rgba(0,0,0,${rand(0.02, a).toFixed(3)})` : `rgba(255,255,255,${rand(0.02, a).toFixed(3)})`; g.fillRect(Math.random() * s, Math.random() * s, rand(1, 3), rand(1, 3)); } };
+const concreteTex = () => dTex('concrete', () => canvasTex(256, (g, s) => {
+  g.fillStyle = '#e4e4e2'; g.fillRect(0, 0, s, s); noise(g, s, 2600, 0.14);
+  for (let i = 0; i < 7; i++) { g.fillStyle = `rgba(60,55,45,${rand(0.04, 0.1).toFixed(2)})`; g.beginPath(); g.ellipse(Math.random() * s, Math.random() * s, rand(10, 40), rand(8, 30), Math.random() * 3, 0, 7); g.fill(); }
+  g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 2; g.strokeRect(1, 1, s - 2, s - 2);
+  g.strokeStyle = 'rgba(0,0,0,0.2)'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, s * 0.5); g.lineTo(s, s * 0.5); g.stroke();
+  for (let i = 0; i < 3; i++) { g.beginPath(); let x = Math.random() * s, y = Math.random() * s; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += rand(-14, 14); y += rand(4, 16); g.lineTo(x, y); } g.stroke(); }
+}));
+const hazardTex = (rx) => { const t = canvasTex(64, (g, s) => { g.fillStyle = '#e8b81c'; g.fillRect(0, 0, s, s); g.fillStyle = '#141414'; for (let i = -2; i < 6; i++) { g.beginPath(); g.moveTo(i * 16, s); g.lineTo(i * 16 + 8, s); g.lineTo(i * 16 + 40, 0); g.lineTo(i * 16 + 32, 0); g.fill(); } }, rx, 1); return t; };
+const buildingTex = (lit) => dTex('bld' + lit, () => canvasTex(128, (g, s) => {
+  g.fillStyle = '#d6d9de'; g.fillRect(0, 0, s, s); noise(g, s, 500, 0.08);
+  for (let y = 8; y < s; y += 20) for (let x = 6; x < s; x += 18) { g.fillStyle = Math.random() < lit ? '#ffe9a8' : '#4b5662'; g.fillRect(x, y, 10, 11); }
+}));
+function decalPlane(tex, size, y = 0.02) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }));
+  m.rotation.x = -Math.PI / 2; m.position.y = y; m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+function lampPost(x, z, col = 0xfff0c0, solid = true) {
+  const pole = dmat(0x3a3d42, { metalness: 0.7, roughness: 0.4 });
+  dcyl(0.08, 5.4, x, 2.7, z, pole, true);
+  dbox(0.7, 0.12, 0.3, x, 5.45, z, pole);
+  dbox(0.6, 0.06, 0.24, x, 5.37, z, dmat(col, { emissive: col, emissiveIntensity: 1.6 }));
+  dcyl(0.18, 0.2, x, 0.1, z, dmat(0x2a2c30));
+  if (solid) { coverRects.push({ x, z, hw: 0.2, hd: 0.2, c: 1, s: 0 }); addStaticBox(x, 1.5, z, 0.3, 3, 0.3, pole); }
+}
+function cone(x, z) { dput(UK, dmat(0xff6a1a, { roughness: 0.6 }), x, 0.28, z, 0.2, 0.56, 0.2, 0); dbox(0.4, 0.04, 0.4, x, 0.02, z, dmat(0x222222)); dcyl(0.13, 0.05, x, 0.33, z, dmat(0xffffff)); }
+function perimeter(trimCol, pillarCol, lampEvery) {
+  const A = ARENA, tm = dmat(trimCol, { roughness: 0.8 }), pm = dmat(pillarCol, { roughness: 0.8 }), hz = new THREE.MeshStandardMaterial({ map: hazardTex(30), roughness: 0.7 });
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2, ca = Math.cos(a), sa = Math.sin(a);
+    const P = (u, y, v, w, h, d, m, c) => dbox(w, h, d, u * ca - v * sa, y, u * sa + v * ca, m, -a, c);
+    P(0, 0.35, A - 0.05, A * 2, 0.7, 0.3, tm); // plinth
+    P(0, 0.9, A - 0.06, A * 2, 0.5, 0.08, hz); // hazard band
+    P(0, 5.12, A, A * 2 + 4, 0.24, 2.3, tm); // cap
+    for (let u = -A + 4; u <= A - 3; u += 8.5) { P(u, 2.6, A + 0.05, 1, 5.2, 0.8, pm, true); P(u, 5.3, A + 0.05, 1.3, 0.3, 1.1, tm); }
+    if (lampEvery) for (let u = -A + 8; u <= A - 6; u += lampEvery) { const x = u * ca - (A - 1.1) * sa, z = u * sa + (A - 1.1) * ca; dbox(0.5, 0.2, 0.5, x, 4.2, z, pm); dbox(0.4, 0.1, 0.4, x, 4.08, z, dmat(0xfff0c0, { emissive: 0xfff0c0, emissiveIntensity: 1.4 })); }
+  }
+}
+function skyline(n, minD, maxD, hMin, hMax, tint, lit) {
+  const tm = buildingTex(lit);
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * Math.PI * 2 + rand(-0.06, 0.06), r = rand(minD, maxD);
+    const w = rand(6, 14), d = rand(6, 14), h = rand(hMin, hMax);
+    const mat = new THREE.MeshStandardMaterial({ map: tm, color: tint[(Math.random() * tint.length) | 0], roughness: 0.9 });
+    const b = dbox(w, h, d, Math.cos(ang) * r, h / 2 - 0.5, Math.sin(ang) * r, mat, -ang);
+    b.material.map = tm.clone(); b.material.map.needsUpdate = true; b.material.map.repeat.set(Math.max(1, Math.round(w / 6)), Math.max(1, Math.round(h / 6)));
+    if (Math.random() < 0.4) dbox(w * 0.5, 1.2, d * 0.5, Math.cos(ang) * r, h + 0.1, Math.sin(ang) * r, dmat(0x555a60), -ang); // roof unit
+    if (Math.random() < 0.25) dcyl(0.7, 9, Math.cos(ang) * r, h + 4, Math.sin(ang) * r, dmat(0x7b6f66)); // chimney
+  }
+}
+function yardDecor() {
+  perimeter(0x55595e, 0x8b8f93, 15);
+  const mk = dTex('yardmk', () => canvasTex(1024, (g, s) => {
+    const P = (v) => (v + 31) * (s / 62);
+    g.clearRect(0, 0, s, s);
+    for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(25,22,18,${rand(0.05, 0.16).toFixed(2)})`; g.beginPath(); g.ellipse(Math.random() * s, Math.random() * s, rand(8, 40), rand(6, 28), Math.random() * 3, 0, 7); g.fill(); }
+    g.strokeStyle = 'rgba(245,200,40,.85)'; g.lineWidth = 7; g.setLineDash([46, 30]); g.strokeRect(P(-27), P(-27), P(27) - P(-27), P(27) - P(-27));
+    g.setLineDash([]); g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 6;
+    g.beginPath(); g.arc(P(0), P(0), 7 * s / 62, 0, 7); g.stroke(); g.beginPath(); g.arc(P(0), P(0), 2 * s / 62, 0, 7); g.stroke();
+    g.beginPath(); g.moveTo(P(-7), P(0)); g.lineTo(P(-2), P(0)); g.moveTo(P(2), P(0)); g.lineTo(P(7), P(0)); g.moveTo(P(0), P(-7)); g.lineTo(P(0), P(-2)); g.moveTo(P(0), P(2)); g.lineTo(P(0), P(7)); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,.7)';
+    for (const [x, z, r] of [[0, -17, 0], [0, 17, Math.PI], [-17, 0, -Math.PI / 2], [17, 0, Math.PI / 2]]) { g.save(); g.translate(P(x), P(z)); g.rotate(r); g.beginPath(); g.moveTo(0, -30); g.lineTo(22, 6); g.lineTo(8, 6); g.lineTo(8, 30); g.lineTo(-8, 30); g.lineTo(-8, 6); g.lineTo(-22, 6); g.fill(); g.restore(); }
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2;
+    for (let i = 0; i < 14; i++) { g.beginPath(); let x = Math.random() * s, y = Math.random() * s; g.moveTo(x, y); for (let k = 0; k < 8; k++) { x += rand(-18, 18); y += rand(-18, 18); g.lineTo(x, y); } g.stroke(); }
+  }));
+  decalPlane(mk, ARENA * 2);
+  for (const [x, z] of [[-15, -15], [15, -15], [-15, 15], [15, 15], [0, -24], [0, 24]]) if (clearSpot(x, z, 1)) lampPost(x, z);
+  skyline(26, 48, 70, 10, 30, [0xcfd4da, 0xb9c0c8, 0xd9d2c4, 0xa9b4be], 0.15);
+  for (const a of [0.5, 2.3, 4.1]) { // water towers / stacks on the horizon
+    const x = Math.cos(a) * 58, z = Math.sin(a) * 58, m = dmat(0x8a6f5a);
+    for (const [dx, dz] of [[-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5]]) dcyl(0.18, 14, x + dx, 7, z + dz, m);
+    dcyl(3.4, 4.5, x, 16, z, dmat(0xb9b2a4)); dput(UK, dmat(0x6d5a4a), x, 19.5, z, 3.6, 2.4, 3.6);
+  }
+  // jersey barriers with hazard stripes, tyre stacks, cones and a wrecked car
+  const hz = new THREE.MeshStandardMaterial({ map: hazardTex(3), roughness: 0.7 }), jm = dmat(0xb8b8b2, { roughness: 0.9 });
+  const barrier = (x, z, r) => { const c = addCover(x, z, 3, 0.9, 0.6, jm, r); const m = c.mesh; dbox(3.02, 0.16, 0.62, 0, 0.1, 0, hz, 0, false, m); dbox(0.7, 0.9, 0.6, 0, 0, 0, jm, 0, false, m).visible = false; };
+  const spots = [[-9, -4, 0.2], [9, 5, 1.6], [4, -11, 0], [-5, 12, 0.5], [12, -9, 1.2], [-12, 8, 2.1]];
+  for (const [x, z, r] of spots) if (clearSpot(x, z, 1.8)) barrier(x, z, r);
+  const tyre = dmat(0x161616, { roughness: 0.95 });
+  for (const [x, z] of [[-20, 3], [19, -4], [-3, 20]]) if (clearSpot(x, z, 1.3)) {
+    addCover(x, z, 1.5, 1.1, 1.5, tyre);
+    for (let i = 0; i < 4; i++) dput(new THREE.TorusGeometry(0.55, 0.2, 8, 14), tyre, x + rand(-0.1, 0.1), 0.2 + i * 0.28, z + rand(-0.1, 0.1), 1, 1, 1, 0, true, scene, Math.PI / 2);
+  }
+  for (let i = 0; i < 14; i++) { const s = randomSpot(0.9); if (s) cone(s.x, s.z); }
+  const car = (x, z, r, col) => { if (!clearSpot(x, z, 2.6)) return; const c = addCover(x, z, 4.2, 0.9, 1.8, dmat(col, { metalness: 0.5, roughness: 0.5 }), r); const m = c.mesh;
+    dbox(2, 0.6, 1.6, -0.1, 0.72, 0, dmat(col, { metalness: 0.5, roughness: 0.5 }), 0, true, m); dbox(1.7, 0.45, 1.62, -0.1, 0.78, 0, dmat(0x2a3a4a, { metalness: 0.8, roughness: 0.15 }), 0, false, m);
+    for (const [wx, wz] of [[-1.3, -0.9], [-1.3, 0.9], [1.3, -0.9], [1.3, 0.9]]) dput(UC, tyre, wx, -0.25, wz, 0.38, 0.3, 0.38, 0, false, m, Math.PI / 2);
+    dbox(0.1, 0.18, 1.3, 2.12, 0.1, 0, dmat(0xfff0c0, { emissive: 0xfff0c0, emissiveIntensity: 0.8 }), 0, false, m); };
+  car(-17, -9, 0.4, 0x8c2a2a); car(13, 14, -0.7, 0x2a4a7c);
+  // guard hut with AC unit
+  if (clearSpot(-4, -20, 3.5)) { const h = addCover(-4, -20, 4.2, 3, 3.2, dmat(0xcfc9b8, { roughness: 0.9 }), 0.2).mesh;
+    dbox(4.8, 0.25, 3.8, 0, 1.6, 0, dmat(0x4a4f55), 0, true, h); dbox(1.2, 0.8, 0.9, 1, 2.1, 0, dmat(0xbfc4c9, { metalness: 0.4 }), 0, false, h);
+    dbox(0.9, 1.9, 0.08, -1, -0.5, 1.64, dmat(0x3a2c20), 0, false, h); dbox(1.3, 0.8, 0.08, 0.9, 0.2, 1.64, dmat(0x7fb6d6, { metalness: 0.7, roughness: 0.15 }), 0, false, h); }
+}
+let docksWater = null;
+function docksDecor() {
+  perimeter(0x3a2f2a, 0x5a4a42, 14);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), new THREE.MeshStandardMaterial({ map: dTex('ripple', () => canvasTex(256, (g, s) => { g.fillStyle = '#1f4a63'; g.fillRect(0, 0, s, s); for (let i = 0; i < 160; i++) { g.strokeStyle = `rgba(255,${180 + (Math.random() * 60) | 0},140,${rand(0.05, 0.22).toFixed(2)})`; g.lineWidth = 2; const x = Math.random() * s, y = Math.random() * s; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + 14, y - 4, x + 30, y); g.stroke(); } }, 60, 60)), roughness: 0.18, metalness: 0.55 }));
+  water.rotation.x = -Math.PI / 2; water.position.y = -0.6; scene.add(water); docksWater = water;
+  mapAnim.push((dt) => { water.material.map.offset.x += dt * 0.004; water.material.map.offset.y += dt * 0.006; });
+  const pl = dTex('planks', () => canvasTex(256, (g, s) => { g.clearRect(0, 0, s, s); g.fillStyle = 'rgba(0,0,0,.2)'; for (let y = 0; y < s; y += 32) { g.fillRect(0, y, s, 2); for (let x = (y / 32 % 2) * 64 + 20; x < s; x += 128) g.fillRect(x, y, 2, 32); } noise(g, s, 900, 0.1); }, 8, 8));
+  decalPlane(pl, ARENA * 2, 0.012);
+  const rust = dmat(0xa84c2a, { metalness: 0.5, roughness: 0.6 });
+  const crane = (x, z, ry) => { const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g);
+    for (const sx of [-6, 6]) for (const sz of [-3, 3]) dbox(0.7, 26, 0.7, sx, 13, sz, rust, 0, false, g);
+    for (const y of [8, 17, 25]) { dbox(13, 0.5, 0.5, 0, y, -3, rust, 0, false, g); dbox(13, 0.5, 0.5, 0, y, 3, rust, 0, false, g); dbox(0.5, 0.5, 6.5, -6, y, 0, rust, 0, false, g); dbox(0.5, 0.5, 6.5, 6, y, 0, rust, 0, false, g); }
+    dbox(5, 1.6, 40, 0, 26.5, 8, dmat(0xd9a21f, { metalness: 0.4 }), 0, false, g); dbox(3.2, 2.4, 3.2, 0, 24.7, 0, dmat(0x444a50), 0, false, g);
+    dbox(0.15, 14, 0.15, 0, 18, -9, dmat(0x222222), 0, false, g); dbox(2, 0.7, 2, 0, 11, -9, dmat(0x8a3a28), 0, false, g);
+    dbox(0.5, 0.5, 0.5, 0, 27.5, 26, dmat(0xff3322, { emissive: 0xff2200, emissiveIntensity: 1.5 }), 0, false, g); };
+  crane(-40, -34, 0.3); crane(42, 30, Math.PI + 0.3);
+  const ship = new THREE.Group(); ship.position.set(0, 0, -62); scene.add(ship);
+  dbox(120, 14, 22, 0, 6, 0, dmat(0x2c3238, { metalness: 0.4 }), 0, false, ship); dbox(120, 2, 22.4, 0, 0.5, 0, dmat(0x8a2e24), 0, false, ship);
+  dbox(26, 16, 14, 40, 20, 0, dmat(0xe9e6e0), 0, false, ship); dbox(26, 3, 14.2, 40, 24, 0, dmat(0x2a4a6a, { metalness: 0.7, roughness: 0.2 }), 0, false, ship); dcyl(2.6, 8, 48, 31, 0, dmat(0xc43a2a), false, ship);
+  const cm = getContainerMats();
+  for (let i = -3; i <= 2; i++) for (let j = 0; j < 2; j++) dbox(14, 3.3, 3.2, i * 15, 14 + j * 3.4, (j ? 0.5 : -0.5) * 3.5, cm[(Math.abs(i * 3 + j) + 2) % cm.length], 0, false, ship);
+  for (let i = 0; i < 8; i++) dbox(0.7, 0.9, 0.1, -50 + i * 14, 9, 11.1, dmat(0xffd98a, { emissive: 0xffc060, emissiveIntensity: 1 }), 0, false, ship);
+  skyline(14, 55, 75, 12, 24, [0x6e5a52, 0x5a4a46, 0x7d6a5e], 0.5);
+  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(16, 28), new THREE.MeshBasicMaterial({ color: 0xffd08a, fog: false }));
+  sunDisc.position.set(-150, 18, 86); sunDisc.lookAt(0, 8, 0); scene.add(sunDisc);
+  const bollard = dmat(0x2a2a2e, { metalness: 0.6 });
+  for (let u = -26; u <= 26; u += 6.5) for (const [x, z] of [[u, ARENA - 1.4], [u, -ARENA + 1.4], [ARENA - 1.4, u], [-ARENA + 1.4, u]]) { dcyl(0.22, 0.6, x, 0.3, z, bollard); dcyl(0.28, 0.1, x, 0.62, z, dmat(0xe8b81c)); }
+  for (const [x, z] of [[-14, 0], [14, 0], [0, -14], [0, 14], [-24, 24], [24, -24]]) if (clearSpot(x, z, 1)) lampPost(x, z, 0xffe0a0);
+  for (let i = 0; i < 6; i++) { const s = randomSpot(1.2); if (s) { const p = dmat(0xb8935a, { roughness: 0.95 }); for (let k = 0; k < 4; k++) dbox(1.2, 0.1, 0.18, s.x, 0.1 + k * 0.01, s.z - 0.5 + k * 0.33, p, 0); dbox(1.2, 0.12, 1.2, s.x, 0.18, s.z, p, 0); dbox(1, 0.7, 1, s.x, 0.6, s.z, dmat(0x7a5b36), 0, true); } }
+}
+function decorContainer(mesh, w) {
+  const dk = dmat(0x1a1a1c, { metalness: 0.5 }), st = dmat(0x8b8f93, { metalness: 0.8, roughness: 0.4 });
+  for (const e of [-1, 1]) {
+    dbox(0.05, 2.3, 0.05, e * (w / 2 + 0.005), 0, 0, dk, 0, false, mesh); // door seam
+    for (const dz of [-0.5, 0.5]) dcyl(0.035, 2.1, e * (w / 2 + 0.04), 0, dz, st, false, mesh); // lock rods
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) dbox(0.2, 0.2, 0.2, e * (w / 2 - 0.1), sy * 1.2, sx * 1.1, dk, 0, false, mesh); // corner castings
+  }
+}
+function ruinsDecor() {
+  const snow = dmat(0xf4f8fc, { roughness: 1 }), rock = dmat(0x6f7a86, { roughness: 1 }), wood = dmat(0x3a2c22, { roughness: 1 });
+  const drift = (x, z, s) => { const m = dput(US, snow, x, 0, z, s * 1.6, s * 0.38, s, rand(0, 3), false); m.position.y = 0.05; };
+  for (const r of coverRects) if (Math.random() < 0.7) drift(r.x + rand(-1, 1), r.z + rand(-1, 1), rand(0.7, 1.5));
+  for (let i = 0; i < 22; i++) { const x = rand(-30, 30), z = rand(-30, 30); if (clearSpot(x, z, 0.6)) drift(x, z, rand(0.5, 1.2)); }
+  const tree = (x, z, h) => { dput(UC, wood, x, h / 2, z, 0.25, h, 0.25, 0, true); for (let i = 0; i < 5; i++) { const y = h * (0.45 + i * 0.1), a = i * 2.4; dput(UC, wood, x + Math.cos(a) * 0.5, y + 0.2, z + Math.sin(a) * 0.5, 0.07, 1.6 - i * 0.15, 0.07, 0, false, scene, Math.sin(a) * 1.0, -Math.cos(a) * 1.0); dput(US, snow, x + Math.cos(a) * 0.9, y + 0.5, z + Math.sin(a) * 0.9, 0.5, 0.18, 0.5); } };
+  for (const [x, z] of [[-27, -26], [27, 26], [-28, 14], [26, -17], [-14, 27], [8, -28], [-8, 27], [28, 3]]) { tree(x, z, rand(5, 7)); coverRects.push({ x, z, hw: 0.4, hd: 0.4, c: 1, s: 0 }); addStaticBox(x, 2, z, 0.5, 4, 0.5, wood); }
+  const flames = [];
+  const brazier = (x, z) => { const m = dmat(0x2c2c30, { metalness: 0.6 }); dcyl(0.1, 1.1, x, 0.55, z, m); dput(UC, m, x, 1.15, z, 0.45, 0.35, 0.45); dput(UK, dmat(0xff7a1a, { emissive: 0xff5a00, emissiveIntensity: 2.2 }), x, 1.55, z, 0.32, 0.7, 0.32);
+    const l = new THREE.PointLight(0xff8a30, 6, 11, 2); l.position.set(x, 1.8, z); scene.add(l); flames.push(l); coverRects.push({ x, z, hw: 0.4, hd: 0.4, c: 1, s: 0 }); addStaticBox(x, 0.6, z, 0.5, 1.2, 0.5, m); };
+  for (const [x, z] of [[-4, -13], [4, 13], [-13, 4], [13, -4]]) brazier(x, z);
+  mapAnim.push(() => { for (const l of flames) l.intensity = 5 + Math.random() * 2.5; });
+  const ice = new THREE.Mesh(new THREE.CircleGeometry(5.2, 30), new THREE.MeshStandardMaterial({ color: 0xbfe3f5, roughness: 0.08, metalness: 0.5, transparent: true, opacity: 0.85, polygonOffset: true, polygonOffsetFactor: -2 }));
+  ice.rotation.x = -Math.PI / 2; ice.position.y = 0.025; scene.add(ice);
+  const bn = dmat(0xa8322c, { roughness: 0.9 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { dbox(0.9, 2.2, 0.06, sx * 9.3, 3.0, sz * 9.3 + sz * 0.95, bn); for (const [dx, dz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) dbox(0.45, 0.4, 0.45, sx * 9.3 + dx, 4.5, sz * 9.3 + dz, dmat(0x9aa2aa)); }
+  for (let i = 0; i < 20; i++) { const a = (i / 20) * Math.PI * 2 + rand(-0.1, 0.1), r = rand(62, 82), h = rand(18, 40), w = rand(14, 26);
+    dput(UK, rock, Math.cos(a) * r, h / 2 - 1, Math.sin(a) * r, w, h, w * 0.8, rand(0, 3)); dput(UK, snow, Math.cos(a) * r, h * 0.78 - 1, Math.sin(a) * r, w * 0.5, h * 0.4, w * 0.4, 0); }
+  const N = 700, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { pos[i * 3] = rand(-45, 45); pos[i * 3 + 1] = rand(0, 28); pos[i * 3 + 2] = rand(-45, 45); }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const sp = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.16, transparent: true, opacity: 0.85, depthWrite: false }));
+  sp.frustumCulled = false; scene.add(sp);
+  mapAnim.push((dt) => { const p = sg.attributes.position.array, t = gameTime; for (let i = 0; i < N; i++) { p[i * 3 + 1] -= dt * (1.4 + (i % 5) * 0.25); p[i * 3] += Math.sin(t * 0.7 + i) * dt * 0.5; if (p[i * 3 + 1] < 0) p[i * 3 + 1] = 28; } sg.attributes.position.needsUpdate = true; });
+}
+
 function buildMap(def) {
   applyTheme(def.theme);
   groundMat.map = makeGroundTex(def.theme.ground);
@@ -487,7 +665,9 @@ function buildMap(def) {
   addStaticBox(0, 2.5, ARENA + 1, ARENA * 2 + 4, 5, 2, wallMat);
   addStaticBox(-ARENA - 1, 2.5, 0, 2, 5, ARENA * 2, wallMat);
   addStaticBox(ARENA + 1, 2.5, 0, 2, 5, ARENA * 2, wallMat);
+  if (!coverTexSet) { coverTexSet = true; coverMat.map = concreteTex(); coverMat.bumpMap = concreteTex(); coverMat.bumpScale = 0.6; coverMat.needsUpdate = true; }
   def.build();
+  def.decor();
   placePickups();
   placeProps(def.crates, def.barrels);
   placeSpawns();
@@ -2287,7 +2467,7 @@ function aimbot() {
     if (e.dead) continue;
     const c = chestOf(e.info);
     if (!c) continue;
-    const dx = c.x - ox, dy = c.y + 0.55 - oy, dz = c.z - oz;
+    const dx = c.x - ox, dy = c.y - 0.12 - oy, dz = c.z - oz; // torso centre
     const dist = Math.hypot(dx, dy, dz) || 1;
     if (dist < bestD) { bestD = dist; best = { dx, dy, dz, dist }; }
   }
@@ -2314,12 +2494,12 @@ function assistUpdate(dt) {
     if (e.dead || e.info.hidden || e.invuln > 0 && !e.remote) continue;
     const c = chestOf(e.info);
     if (!c) continue;
-    const dx = c.x - ox, dy = c.y + 0.5 - oy, dz = c.z - oz;
+    const dx = c.x - ox, dy = c.y - 0.12 - oy, dz = c.z - oz; // torso centre
     const dist = Math.hypot(dx, dy, dz);
     if (dist > 45 || dist < 0.5) continue;
     const dot = (dx * look.x + dy * look.y + dz * look.z) / dist;
     if (dot < cone || dot <= bestScore) continue;
-    const blocked = rayCast(new CANNON.Vec3(ox, oy, oz), new CANNON.Vec3(c.x, c.y + 0.5, c.z), GRP.STATIC | GRP.PROP);
+    const blocked = rayCast(new CANNON.Vec3(ox, oy, oz), new CANNON.Vec3(c.x, c.y, c.z), GRP.STATIC | GRP.PROP);
     if (blocked && blocked.dist < dist - 0.6) continue;
     bestScore = dot; best = { dx, dy, dz, dist, dot };
   }
@@ -3170,6 +3350,7 @@ const gunBase = GUN_HIP.clone();
 /* ------------------------------ main update ------------------------------ */
 function update(dt) {
   gameTime += dt;
+  for (const f of mapAnim) f(dt);
   if (net.on && state === 'play') {
     net.sendT -= dt;
     if (net.sendT <= 0) {
