@@ -8,8 +8,8 @@
   tc.innerHTML =
     '<div id="look"></div><div id="stick"><div id="knob"></div></div>' +
     '<div class="b" id="fire">FIRE</div><div class="b" id="jump">JUMP</div><div class="b" id="ads">AIM</div>' +
-    '<div class="b" id="slide">SLIDE</div><div class="b" id="rel">RELOAD</div><div class="b" id="gren">NADE</div>' +
-    '<div class="b" id="pause">II</div><div class="b" id="lockb">LOCK</div>' +
+    '<div class="b" id="slide">SLIDE</div><div class="b" id="rel">RELOAD</div><div class="b" id="gren">NADE</div><div class="b" id="skill">SKILL</div>' +
+    '<div class="b" id="pause">II</div><div class="b" id="lockb">LOCK</div><div class="b" id="chatb">CHAT</div><div class="b" id="assb">ASSIST</div><div class="b" id="autob">AUTO</div>' +
     [1, 2, 3, 4].map((n, i) => `<div class="b w" id="w${n}" style="left:${8 + i * 10.5}vh">${n}</div>`).join('');
   document.body.appendChild(tc);
   const $ = (id) => tc.querySelector('#' + id);
@@ -28,8 +28,20 @@
   hold('slide', () => AB.slide(true), () => AB.slide(false));
   hold('rel', () => AB.reload());
   hold('gren', () => AB.grenade());
+  hold('skill', () => AB.ability());
   hold('pause', () => AB.pause());
   hold('lockb', () => AB.toggleLock());
+  hold('chatb', () => AB.chat());
+  // balanced aim assist + auto shoot (both default on, each can be toggled)
+  const sv = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v === '1'; } catch (e) { return d; } };
+  const put = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (e) { /* ignore */ } };
+  const setA = (btn, key, label) => {
+    const el = $(btn);
+    const paint = () => { el.textContent = label + (AB.assist[key] ? ' ON' : ' OFF'); el.style.opacity = AB.assist[key] ? '1' : '.55'; };
+    const wait = setInterval(() => { if (ready()) { clearInterval(wait); AB.assist[key] = sv('ab_' + key, true); paint(); } }, 100);
+    hold(btn, () => { AB.assist[key] = !AB.assist[key]; put('ab_' + key, AB.assist[key]); paint(); });
+  };
+  setA('assb', 'aim', 'ASSIST'); setA('autob', 'auto', 'AUTO');
   for (let n = 1; n <= 4; n++) hold('w' + n, () => AB.equip(n - 1));
 
   // virtual joystick -> WASD (+ sprint when pushed to the edge)

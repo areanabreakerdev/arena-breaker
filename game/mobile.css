@@ -18,3 +18,7 @@ html, body { touch-action: none; -webkit-user-select: none; user-select: none; o
 #tc #pause { left: 50%; top: 8px; margin-left: -20px; width: 40px; height: 40px; }
 #tc .w { top: 10px; width: 9vh; height: 9vh; border-radius: 12px; }
 #tc #lockb { right: 5vh; bottom: 50vh; width: 11vh; height: 11vh; display: none; background: rgba(255,0,0,.3); }
+#tc #skill { right: 42vh; bottom: 42vh; width: 11vh; height: 11vh; background: rgba(255,204,102,.25); }
+#tc #chatb { left: 50%; top: 8px; margin-left: 30px; width: 11vh; height: 6vh; border-radius: 10px; font-size: 1.8vh; }
+#tc #assb { left: 50%; top: 8px; margin-left: 85px; width: 13vh; height: 6vh; border-radius: 10px; font-size: 1.6vh; }
+#tc #autob { left: 50%; top: 8px; margin-left: 148px; width: 13vh; height: 6vh; border-radius: 10px; font-size: 1.6vh; }
