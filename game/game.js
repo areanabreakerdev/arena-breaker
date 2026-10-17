@@ -2944,6 +2944,8 @@ window.AB = {
   },
   pause() { if (state === 'play' && locked) { locked = false; showPause(); } },
   assist,
+  get slot() { return inv.cur; },
+  get micOn() { return vc.on && !vc.denied; },
   mic() { vcToggle(); },
   chat() { if (chat.open) closeChat(false); else openChat(); },
   look(dx, dy) {
@@ -3077,17 +3079,108 @@ const CONE_Y = 0.11;
 let neonCone = null;
 /* ---- detailed first-person gun models (built from many small parts, no external files) ---- */
 const GMATS = {};
+const GTEX = {};
+function gtex(kind) {
+  if (GTEX[kind]) return GTEX[kind];
+  return (GTEX[kind] = canvasTex(128, (g, sz) => {
+    g.fillStyle = '#e6e6e6'; g.fillRect(0, 0, sz, sz);
+    if (kind === 'metal') { // brushed steel streaks + tiny pits
+      for (let i = 0; i < 260; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'; g.fillRect(Math.random() * sz, Math.random() * sz, rand(10, 60), 1); }
+      for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(Math.random() * sz, Math.random() * sz, 1, 1); }
+    } else if (kind === 'wood') { // grain
+      for (let y = 0; y < sz; y += 2) { g.fillStyle = `rgba(${40 + (Math.random() * 40) | 0},20,5,${rand(0.05, 0.22).toFixed(2)})`; g.fillRect(0, y + Math.sin(y * 0.3) * 2, sz, 1.5); }
+    } else { // polymer stipple + diamond grip texture
+      for (let i = 0; i < 900; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.07)'; g.fillRect(Math.random() * sz, Math.random() * sz, 1.5, 1.5); }
+      g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 1;
+      for (let i = -sz; i < sz * 2; i += 8) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + sz, sz); g.stroke(); g.beginPath(); g.moveTo(i, sz); g.lineTo(i + sz, 0); g.stroke(); }
+    }
+  }, 1, 1));
+}
 function gmat(color, kind) {
   const key = kind + color;
   if (GMATS[key]) return GMATS[key];
-  const opt = kind === 'metal' ? { color, roughness: 0.35, metalness: 0.9 }
-    : kind === 'wood' ? { color, roughness: 0.8, metalness: 0.05 }
+  const opt = kind === 'metal' ? { color, roughness: 0.32, metalness: 0.9, map: gtex('metal'), envMapIntensity: 1.2 }
+    : kind === 'wood' ? { color, roughness: 0.75, metalness: 0.05, map: gtex('wood') }
     : kind === 'glow' ? { color, emissive: color, emissiveIntensity: 1.6, roughness: 0.3, metalness: 0.2 }
-    : { color, roughness: 0.65, metalness: 0.25 };
+    : { color, roughness: 0.6, metalness: 0.25, map: gtex('poly') };
   return (GMATS[key] = new THREE.MeshStandardMaterial(opt));
 }
+// rounded body: a box with its four long edges filled by cylinders
+function gbody(w, h, d, x, y, z, color, kind = 'metal') {
+  const r = Math.min(w, h) * 0.16;
+  const a = gbox(w - 2 * r, h, d, x, y, z, color, kind);
+  gbox(w, h - 2 * r, d, x, y, z, color, kind);
+  const geo = new THREE.CylinderGeometry(r, r, d, 8);
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    const cy = new THREE.Mesh(geo, gmat(color, kind));
+    cy.rotation.x = Math.PI / 2; cy.position.set(x + sx * (w / 2 - r), y + sy * (h / 2 - r), z);
+    (gParent || gun).add(cy);
+  }
+  return a;
+}
+function gScrew(x, y, z, side) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.004, 8), gmat(G_STEEL, 'metal')); m.rotation.z = Math.PI / 2; m.position.set(x + side * 0.0, y, z); (gParent || gun).add(m); }
+const GNAME = {};
+function gPlate(id, x, y, z, wd, ht, accent) {
+  const w = WEAPONS[id];
+  const tex = GNAME[id] || (GNAME[id] = (() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgba(8,9,12,0.92)'; g.fillRect(0, 0, 256, 64);
+    g.fillStyle = hexCss(accent || 0xffb347); g.fillRect(0, 0, 10, 64); g.fillRect(0, 58, 256, 6);
+    g.fillStyle = '#e8eaef'; g.font = 'bold 30px "Segoe UI",Arial,sans-serif'; g.textBaseline = 'middle';
+    g.fillText(String(w.name).toUpperCase().slice(0, 14), 22, 28);
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.font = '14px monospace'; g.fillText('MK-' + (Object.keys(WEAPONS).indexOf(id) + 11) + '  //  AB', 22, 50);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })());
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(wd, ht), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, metalness: 0.3 }));
+  p.rotation.y = -Math.PI / 2; p.position.set(x, y, z);
+  (gParent || gun).add(p);
+}
+// gloved hand: palm, wrapped fingers, thumb, cuff and sleeve running back toward the camera
+function gHand(x, y, z, side, mode, accent, parent) {
+  const old = gParent; if (parent) gParent = parent;
+  const gl = G_GRIP, sl = 0x24272d;
+  if (mode === 'grip') { // right hand around a pistol grip
+    gbox(0.03, 0.07, 0.06, x + side * 0.032, y, z, gl, 'poly');
+    for (let i = 0; i < 4; i++) { gbox(0.036, 0.017, 0.044, x - side * 0.022, y + 0.03 - i * 0.02, z - 0.004, gl, 'poly'); gbox(0.006, 0.012, 0.03, x - side * 0.04, y + 0.03 - i * 0.02, z - 0.012, G_MID, 'poly'); }
+    gbox(0.02, 0.016, 0.055, x + side * 0.0, y + 0.058, z - 0.014, gl, 'poly', 0.15);
+  } else { // left hand cupping the forend from below
+    gbox(0.06, 0.03, 0.07, x, y - 0.04, z, gl, 'poly');
+    for (let i = 0; i < 4; i++) { gbox(0.016, 0.05, 0.016, x + 0.035, y - 0.018, z - 0.03 + i * 0.02, gl, 'poly'); gbox(0.012, 0.01, 0.012, x + 0.037, y + 0.004, z - 0.03 + i * 0.02, G_MID, 'poly'); }
+    gbox(0.02, 0.016, 0.06, x - 0.028, y - 0.004, z - 0.02, gl, 'poly', 0, -0.2);
+  }
+  const wy = mode === 'grip' ? y - 0.045 : y - 0.065;
+  gbox(0.075, 0.075, 0.03, x + side * 0.03, wy, z + 0.06, accent || 0x3a3d44, 'poly', 0.35); // cuff
+  gbox(0.085, 0.085, 0.42, x + side * 0.05, wy - 0.07, z + 0.27, sl, 'poly', 0.4); // sleeve
+  gbox(0.09, 0.02, 0.3, x + side * 0.05, wy - 0.02, z + 0.3, accent || 0x3a3d44, 'glow', 0.4);
+  gParent = old;
+}
+const HANDS = {
+  rifle: { r: [0, -0.15, 0.23], l: [0, -0.03, -0.21] }, bullpup: { r: [0, -0.13, -0.02], l: [0, -0.03, -0.24] },
+  smg: { r: [0, -0.13, 0.16], l: [0, -0.04, -0.17] }, lmg: { r: [0, -0.14, 0.3], l: [0, -0.05, -0.22] },
+  minigun: { r: [0, -0.15, 0.2], l: [-0.1, -0.05, 0.02] }, dmr: { r: [0, -0.14, 0.2], l: [0, -0.04, -0.22] },
+  sniper: { r: [0, -0.14, 0.2], l: [0, -0.04, -0.24] }, shotgun: { r: [0, -0.12, 0.17], l: 'pump', lp: [0, 0.0, -0.22] },
+  dbl: { r: [0, -0.08, 0.11], l: [0, -0.03, -0.2] }, sawed: { r: [0, -0.09, 0.14], l: [0, -0.02, -0.08] },
+  plasma: { r: [0, -0.14, 0.2], l: [0, -0.04, -0.17] }, revolver: { r: [0, -0.11, 0.12] }, pistol: { r: [0, -0.1, 0.1] },
+  cannon: { r: [0, -0.1, 0.1] }, machpist: { r: [0, -0.1, 0.1] },
+};
+const GPLATE = { rifle: [0.037, 0.022, 0.1], bullpup: [0.039, 0.0, 0.1], smg: [0.037, 0.012, 0.07], lmg: [0.047, 0.02, 0.1], minigun: [0.077, -0.02, 0.1], dmr: [0.033, 0.02, 0.12], sniper: [0.033, 0.02, 0.1], shotgun: [0.037, 0.0, 0.1], plasma: [0.047, 0.0, 0.08], revolver: [0.024, 0.0, 0.03], pistol: [0.024, 0.016, 0.02], cannon: [0.029, 0.016, 0.04], machpist: [0.024, 0.016, 0.02] };
+function gunExtras(id, m, accent) {
+  const h = [...id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const long = ['rifle', 'bullpup', 'smg', 'lmg', 'dmr', 'sniper', 'plasma'].includes(m);
+  if (long && h % 3 === 0 && m !== 'sniper') { gbox(0.026, 0.1, 0.034, 0, -0.085, -0.19, G_GRIP, 'poly', 0.1); gbox(0.03, 0.012, 0.04, 0, -0.037, -0.19, G_DARK); } // vertical foregrip
+  if (long && h % 4 === 1) { gbox(0.022, 0.022, 0.06, 0.042, -0.004, -0.2, G_DARK); gbox(0.008, 0.008, 0.004, 0.042, -0.004, -0.232, 0xff2222, 'glow'); } // laser module
+  if (long && h % 5 === 2) { gcyl(0.014, 0.07, -0.042, -0.004, -0.2, G_DARK); gcyl(0.012, 0.004, -0.042, -0.004, -0.238, 0xfff2c0, 'glow'); } // flashlight
+  const pl = GPLATE[m] || GPLATE.rifle;
+  gPlate(id, -pl[0], pl[1], pl[2], m === 'pistol' || m === 'revolver' ? 0.07 : 0.13, m === 'pistol' || m === 'revolver' ? 0.02 : 0.03, accent);
+  for (const [dz, dy] of [[0.0, 0.034], [0.18, 0.034], [0.0, -0.034], [0.18, -0.034]]) if (long) { const a = gParent; gParent = null; gScrew(-pl[0], pl[1] + dy * 0.6, pl[2] + dz - 0.06, 0); gParent = a; }
+  const H = HANDS[m] || HANDS.pistol;
+  gHand(H.r[0], H.r[1], H.r[2], 1, 'grip', accent);
+  if (H.l === 'pump' && VM.pump) gHand(H.lp[0], H.lp[1], H.lp[2], -1, 'under', accent, VM.pump);
+  else if (H.l) { const lg = new THREE.Group(); gun.add(lg); VM.lh = lg; gHand(H.l[0], H.l[1], H.l[2], -1, 'under', accent, lg); }
+}
 let gParent = null;
-const VM = { mag: null, slide: null, handle: null, pump: null, handleZ: 0 };
+const VM = { mag: null, slide: null, handle: null, pump: null, lh: null, handleZ: 0 };
 function gbox(w, h, d, x, y, z, color, kind = 'metal', rx = 0, rz = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), gmat(color, kind));
   m.position.set(x, y, z);
@@ -3159,15 +3252,15 @@ function gStripe(g, len, z) {
 function buildGunModel(id) {
   const w = WEAPONS[id];
   const c = w.col || 0x2a2c32, g = w.glow || 0;
-  const m = w.model;
+  const m = w.model || ({ ar: 'rifle', neon: 'rifle', admin: 'rifle', smg: 'smg', shotgun: 'shotgun', sniper: 'sniper', pistol: 'pistol', revolver: 'revolver' })[id] || 'pistol';
   let fz = -0.7, adsY = 0.1, adsZ = -0.4;
   GUN_HIP.set(0.24, -0.22, -0.5);
   const rifleBody = (o) => {
-    gbox(0.07, 0.072, 0.34, 0, 0.02, 0.1, c); // upper receiver
+    gbody(0.07, 0.072, 0.34, 0, 0.02, 0.1, c); // upper receiver
     gbox(0.066, 0.058, 0.26, 0, -0.04, 0.12, G_MID, 'poly'); // lower receiver
     gbox(0.012, 0.03, 0.05, 0.036, 0.03, 0.12, G_DARK); // ejection port
     VM.handle = gbox(0.014, 0.014, 0.03, -0.04, 0.045, 0.2, G_STEEL); VM.handleZ = 0.2; // charging handle
-    gbox(0.065, 0.065, o.hg, 0, 0.018, -0.07 - o.hg / 2, o.hgColor || c); // handguard
+    gbody(0.065, 0.065, o.hg, 0, 0.018, -0.07 - o.hg / 2, o.hgColor || c); // handguard
     for (let i = 0; i < Math.floor(o.hg / 0.045); i++) gbox(0.068, 0.012, 0.02, 0, 0.018, -0.1 - i * 0.045, G_DARK); // vents
     gcyl(0.013, o.len, 0, 0.018, -0.07 - o.hg - o.len / 2 + 0.02, G_STEEL);
     gMuzzle(-0.07 - o.hg - o.len + 0.02, 0.013, c, o.muzzle);
@@ -3193,7 +3286,7 @@ function buildGunModel(id) {
     } else rifleBody({ hg: 0.24, len: 0.18, optic: 'reddot', curved: true, stock: 'tube', muzzle: 'brake' });
     adsY = 0.115; adsZ = -0.37;
   } else if (m === 'smg') {
-    gbox(0.07, 0.085, 0.3, 0, 0.01, 0.07, c); gbox(0.064, 0.05, 0.2, 0, -0.04, 0.09, G_MID, 'poly');
+    gbody(0.07, 0.085, 0.3, 0, 0.01, 0.07, c); gbox(0.064, 0.05, 0.2, 0, -0.04, 0.09, G_MID, 'poly');
     gbox(0.062, 0.062, 0.14, 0, 0.012, -0.15, c); for (let i = 0; i < 3; i++) gbox(0.064, 0.012, 0.014, 0, 0.012, -0.1 - i * 0.04, G_DARK);
     gcyl(0.013, 0.1, 0, 0.012, -0.27, G_STEEL); gMuzzle(-0.32, 0.013, c, id === 'viper' ? 'supp' : 'brake');
     gRail(0, 0.056, 0.14, 0.26); gOptic('reddot', 0.064, 0.02, g); gTriggerGuard(-0.068, 0.06);
@@ -3201,7 +3294,7 @@ function buildGunModel(id) {
     gbox(0.03, 0.07, 0.03, 0, -0.07, -0.16, G_GRIP, 'poly'); gStock(0.15, 'fold', c); gStripe(g, 0.2, -0.1);
     fz = -0.34; adsY = 0.115; adsZ = -0.36;
   } else if (m === 'lmg') {
-    gbox(0.09, 0.1, 0.4, 0, 0.01, 0.1, c); gbox(0.08, 0.05, 0.3, 0, -0.05, 0.1, G_MID, 'poly');
+    gbody(0.09, 0.1, 0.4, 0, 0.01, 0.1, c); gbox(0.08, 0.05, 0.3, 0, -0.05, 0.1, G_MID, 'poly');
     gcyl(0.03, 0.34, 0, 0.012, -0.25, G_MID, 'metal', 0.03); for (let i = 0; i < 7; i++) gcyl(0.034, 0.012, 0, 0.012, -0.12 - i * 0.045, G_DARK, 'metal');
     gcyl(0.014, 0.2, 0, 0.012, -0.5, G_STEEL); gMuzzle(-0.6, 0.014, c, 'brake');
     gbox(0.03, 0.06, 0.02, 0, 0.08, 0.0, G_DARK); gbox(0.02, 0.012, 0.22, 0, 0.1, 0.0, G_STEEL); // carry handle
@@ -3219,7 +3312,7 @@ function buildGunModel(id) {
     fz = -0.62; GUN_HIP.set(0.26, -0.26, -0.55); adsY = 0.13; adsZ = -0.4;
   } else if (m === 'dmr' || m === 'sniper') {
     const big = m === 'sniper';
-    gbox(0.062, 0.085, big ? 0.44 : 0.38, 0, 0.015, 0.1, c); gbox(0.06, 0.05, 0.24, 0, -0.04, 0.12, G_MID, 'poly');
+    gbody(0.062, 0.085, big ? 0.44 : 0.38, 0, 0.015, 0.1, c); gbox(0.06, 0.05, 0.24, 0, -0.04, 0.12, G_MID, 'poly');
     gbox(0.058, 0.058, 0.22, 0, 0.012, -0.2, big ? G_MID : c, 'poly'); gcyl(0.012, big ? 0.62 : 0.42, 0, 0.012, big ? -0.55 : -0.5, G_STEEL);
     gMuzzle(big ? -0.88 : -0.7, 0.012, c, 'brake');
     { const bh = new THREE.Group(); gun.add(bh); gParent = bh; gbox(0.012, 0.012, 0.06, 0.04, 0.03, 0.2, G_STEEL); gbox(0.016, 0.016, 0.016, 0.052, 0.03, 0.23, G_STEEL); gParent = null; VM.handle = bh; VM.handleZ = 0; } // bolt handle
@@ -3230,7 +3323,7 @@ function buildGunModel(id) {
     fz = big ? -0.92 : -0.74; GUN_HIP.set(0.24, -0.23, -0.55); adsY = 0.115; adsZ = -0.4;
   } else if (m === 'shotgun' || m === 'dbl' || m === 'sawed') {
     if (m === 'shotgun') {
-      gbox(0.07, 0.09, 0.3, 0, 0.0, 0.1, c); gcyl(0.017, 0.62, 0, 0.03, -0.32, G_STEEL); gcyl(0.014, 0.5, 0, -0.012, -0.26, G_DARK); // barrel + mag tube
+      gbody(0.07, 0.09, 0.3, 0, 0.0, 0.1, c); gcyl(0.017, 0.62, 0, 0.03, -0.32, G_STEEL); gcyl(0.014, 0.5, 0, -0.012, -0.26, G_DARK); // barrel + mag tube
       { const pg = new THREE.Group(); gun.add(pg); gParent = pg; VM.pump = pg;
       gbox(0.062, 0.07, 0.2, 0, -0.012, -0.22, id === 'autoshot' ? G_MID : G_WOOD, id === 'autoshot' ? 'poly' : 'wood');
       for (let i = 0; i < 5; i++) gbox(0.064, 0.006, 0.01, 0, -0.012, -0.15 - i * 0.03, G_DARK); gParent = null; }
@@ -3267,7 +3360,7 @@ function buildGunModel(id) {
     const big = m === 'cannon', mp = m === 'machpist';
     const sl = big ? 0.3 : mp ? 0.24 : 0.24;
     const sg = new THREE.Group(); gun.add(sg); gParent = sg; VM.slide = sg;
-    gbox(big ? 0.056 : 0.046, big ? 0.075 : 0.062, sl, 0, 0.015, 0, c); // slide
+    gbody(big ? 0.056 : 0.046, big ? 0.075 : 0.062, sl, 0, 0.015, 0, c); // slide
     for (let i = 0; i < 5; i++) gbox(big ? 0.058 : 0.048, 0.05, 0.006, 0, 0.015, 0.05 + i * 0.012, G_DARK); // serrations
     gbox(0.014, 0.012, 0.02, 0, 0.06, -sl / 2 + 0.03, G_DARK); gbox(0.03, 0.012, 0.014, 0, 0.056, sl / 2 - 0.02, G_DARK); // sights
     gParent = null;
@@ -3280,6 +3373,7 @@ function buildGunModel(id) {
     else gbox(0.04, 0.012, 0.05, 0, -0.145, 0.11, G_DARK, 'metal', 0.22);
     fz = -sl / 2 - 0.05; GUN_HIP.set(0.2, -0.2, -0.42); adsY = 0.06; adsZ = -0.32;
   }
+  gunExtras(id, m, g || 0xffb347);
   GUN_ADS.set(0, -adsY - 0.01, adsZ);
   if (id === 'neon') {
     for (const sx of [-1, 1]) { // antlers
@@ -3298,7 +3392,7 @@ function buildGunModel(id) {
 }
 
 function buildViewModel() {
-  neonCone = null; gParent = null; VM.mag = VM.slide = VM.handle = VM.pump = null;
+  neonCone = null; gParent = null; VM.mag = VM.slide = VM.handle = VM.pump = VM.lh = null;
   for (const c of gun.children.slice()) if (c !== flashMesh) { gun.remove(c); c.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
   const mk = (w, h, d, x, y, z, c = 0x222428, par = gun) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.6 }));
@@ -3584,6 +3678,7 @@ function updateCamera(dt) {
   const magOut = rk > 0 ? ss(0.2, 0.38, rk) - ss(0.5, 0.68, rk) : 0; // 0 = seated, 1 = fully removed
   const seat = rk > 0 ? Math.sin(Math.PI * ss(0.66, 0.78, rk)) : 0;  // thud when the mag locks in
   const rack = rk > 0 ? Math.sin(Math.PI * ss(0.76, 0.92, rk)) : 0;  // bolt / slide / pump cycle
+  if (VM.lh) { const hk = rk > 0 ? ss(0.1, 0.28, rk) - ss(0.72, 0.9, rk) : 0; VM.lh.position.set(0.01 * hk, -0.07 * hk - 0.12 * magOut, 0.24 * hk); VM.lh.rotation.x = -0.25 * hk; }
   if (VM.mag) { VM.mag.position.set(0.05 * magOut, -0.28 * magOut, 0.03 * magOut); VM.mag.rotation.z = 0.5 * magOut; VM.mag.visible = magOut < 0.98; }
   if (VM.handle) VM.handle.position.z = (VM.handle.isGroup ? 0 : VM.handleZ) + rack * 0.06 + vmS.z * 0.2;
   if (VM.slide) VM.slide.position.z = rack * 0.05 + Math.max(0, vmS.z) * 0.9;

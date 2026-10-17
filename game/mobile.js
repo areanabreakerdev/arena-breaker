@@ -5,12 +5,13 @@
   const ready = () => window.AB;
   const tc = document.createElement('div');
   tc.id = 'tc';
+  const B = (id, ic, lb) => `<div class="b" id="${id}"><span class="ic">${ic}</span><span class="lb">${lb}</span></div>`;
   tc.innerHTML =
-    '<div id="look"></div><div id="stick"><div id="knob"></div></div>' +
-    '<div class="b" id="fire">FIRE</div><div class="b" id="jump">JUMP</div><div class="b" id="ads">AIM</div>' +
-    '<div class="b" id="slide">SLIDE</div><div class="b" id="rel">RELOAD</div><div class="b" id="gren">NADE</div><div class="b" id="skill">SKILL</div>' +
-    '<div class="b" id="pause">II</div><div class="b" id="lockb">LOCK</div><div class="b" id="chatb">CHAT</div><div class="b" id="micb">MIC</div><div class="b" id="assb">ASSIST</div><div class="b" id="autob">AUTO</div>' +
-    [1, 2, 3, 4].map((n, i) => `<div class="b w" id="w${n}" style="left:${8 + i * 10.5}vh">${n}</div>`).join('');
+    '<div id="look"></div><div id="stick"><i class="ring"></i><i class="tk t1"></i><i class="tk t2"></i><i class="tk t3"></i><i class="tk t4"></i><div id="knob"></div></div>' +
+    B('fire', '◉', 'FIRE') + B('jump', '▲', 'JUMP') + B('ads', '◎', 'AIM') + B('slide', '▼', 'SLIDE') +
+    B('rel', '⟳', 'RELOAD') + B('gren', '●', 'NADE') + B('skill', '✦', 'SKILL') + B('lockb', '⌖', 'LOCK') +
+    '<div id="topbar"><div class="p" id="pause">❚❚</div><div class="p" id="chatb">CHAT</div><div class="p" id="micb">MIC</div><div class="p" id="assb">ASSIST</div><div class="p" id="autob">AUTO</div></div>' +
+    '<div id="wrow">' + [1, 2, 3, 4].map((n) => `<div class="b w" id="w${n}">${n}</div>`).join('') + '</div>';
   document.body.appendChild(tc);
   const $ = (id) => tc.querySelector('#' + id);
 
@@ -38,11 +39,11 @@
   const put = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (e) { /* ignore */ } };
   const setA = (btn, key, label) => {
     const el = $(btn);
-    const paint = () => { el.textContent = label + (AB.assist[key] ? ' ON' : ' OFF'); el.style.opacity = AB.assist[key] ? '1' : '.55'; };
+    const paint = () => { el.textContent = label; el.classList.toggle('on', !!AB.assist[key]); el.classList.toggle('off', !AB.assist[key]); };
     const wait = setInterval(() => { if (ready()) { clearInterval(wait); AB.assist[key] = sv('ab_' + key, true); paint(); } }, 100);
     hold(btn, () => { AB.assist[key] = !AB.assist[key]; put('ab_' + key, AB.assist[key]); paint(); });
   };
-  setA('assb', 'aim', 'ASSIST'); setA('autob', 'auto', 'AUTO');
+  setA('assb', 'aim', 'AIM+'); setA('autob', 'auto', 'AUTO');
   for (let n = 1; n <= 4; n++) hold('w' + n, () => AB.equip(n - 1));
 
   // virtual joystick -> WASD (+ sprint when pushed to the edge)
@@ -120,6 +121,8 @@
     tc.classList.toggle('on', AB.playing);
     const a = AB.admin.auth;
     $('w4').style.display = a ? '' : 'none';
+    for (let n = 1; n <= 4; n++) $('w' + n).classList.toggle('cur', AB.slot === n - 1);
+    $('micb').classList.toggle('on', !!AB.micOn); $('micb').classList.toggle('off', !AB.micOn);
     $('lockb').style.display = a ? 'flex' : 'none';
     $('lockb').style.background = AB.admin.lock ? 'rgba(255,0,0,.6)' : 'rgba(255,0,0,.3)';
   }, 200);
