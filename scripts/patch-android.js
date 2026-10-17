@@ -5,6 +5,9 @@ const app = path.join(__dirname, '..', 'android', 'app', 'src', 'main');
 const mf = path.join(app, 'AndroidManifest.xml');
 let m = fs.readFileSync(mf, 'utf8');
 if (!m.includes('screenOrientation')) m = m.replace('<activity', '<activity\n            android:screenOrientation="sensorLandscape"');
+for (const perm of ['RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'INTERNET']) {
+  if (!m.includes('android.permission.' + perm)) m = m.replace('<application', '<uses-permission android:name="android.permission.' + perm + '" />\n    <application');
+}
 fs.writeFileSync(mf, m);
 const dir = path.join(app, 'java', 'com', 'arenabreaker', 'game');
 fs.mkdirSync(dir, { recursive: true });

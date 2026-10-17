@@ -1129,12 +1129,12 @@ function ensureBot(r) {
   enemies.push(b);
   r.bot = b;
 }
-function addRemote(id, name, emoji) {
+function addRemote(id, name, emoji, pid) {
   let info = null;
   for (let i = 1; i < roster.length; i++) if (!roster[i].remote) { info = roster[i]; break; }
   if (!info) return null;
   Object.assign(info, { remote: true, netId: id, name: String(name || 'Player').slice(0, 10), emoji: emoji || '🎯', kills: 0, deaths: 0, streak: 0, hidden: false, netDead: false });
-  const r = { id, info, bot: null, st: null };
+  const r = { id, info, bot: null, st: null, pid: pid || null };
   net.remotes.set(id, r);
   ensureBot(r);
   return r;
@@ -1148,6 +1148,7 @@ function removeRemote(id) {
     const i = enemies.indexOf(r.bot);
     if (i >= 0) enemies.splice(i, 1);
   }
+  if (r.pid) { const cl = vc.calls.get(r.pid); if (cl) { try { cl.close(); } catch (e) { /* ignore */ } } vcDrop(r.pid); }
   r.info.enemy = null; r.info.remote = false; r.info.hidden = true; r.info.netId = null;
   net.remotes.delete(id);
   if (net.host && net.remotes.size === 0) net.on = false;
@@ -1156,7 +1157,7 @@ function removeRemote(id) {
 function netHandle(m) {
   const r = net.remotes.get(m.id);
   switch (m.t) {
-    case 'join': addRemote(m.id, m.name, m.emoji); if (state === 'menu') netStatus(netPlayers() + '  -  START when ready'); break;
+    case 'join': addRemote(m.id, m.name, m.emoji, m.pid); if (state === 'menu') netStatus(netPlayers() + '  -  START when ready'); break;
     case 'leave': removeRemote(m.id); break;
     case 'st': if (r) { r.st = m; if (r.bot) r.bot.netT = m; } break;
     case 'shot': if (r && state === 'play') spawnBullet(new CANNON.Vec3(m.p[0], m.p[1], m.p[2]), new CANNON.Vec3(m.v[0], m.v[1], m.v[2]), r.info, m.d); break;
@@ -1182,10 +1183,10 @@ function hostGot(c, m) {
     c._abid = id;
     net.conns.set(id, c);
     net.host = true; net.on = true;
-    const others = [...net.remotes.values()].map((r) => ({ id: r.id, name: r.info.name, emoji: r.info.emoji }));
-    addRemote(id, m.name, m.emoji);
-    c.send({ t: 'welcome', you: id, map: selectedMap, time: prefs.time, started: state === 'play', roundT, players: [{ id: 'H', name: playerInfo.name, emoji: playerInfo.emoji }, ...others] });
-    netBroadcast({ t: 'join', id, name: m.name, emoji: m.emoji }, id);
+    const others = [...net.remotes.values()].map((r) => ({ id: r.id, name: r.info.name, emoji: r.info.emoji, pid: r.pid }));
+    addRemote(id, m.name, m.emoji, m.pid);
+    c.send({ t: 'welcome', you: id, map: selectedMap, time: prefs.time, started: state === 'play', roundT, players: [{ id: 'H', name: playerInfo.name, emoji: playerInfo.emoji, pid: net.peer.id }, ...others] });
+    netBroadcast({ t: 'join', id, name: m.name, emoji: m.emoji, pid: m.pid }, id);
     netStatus(netPlayers() + '  -  START when ready');
     return;
   }
@@ -1204,7 +1205,8 @@ function clientGot(m) {
     net.on = true; net.client = true; net.myId = m.you;
     net.pending = { time: m.time, started: !!m.started, roundT: m.roundT };
     codeHud.style.display = 'none';
-    for (const p of m.players) addRemote(p.id, p.name, p.emoji);
+    for (const p of m.players) { addRemote(p.id, p.name, p.emoji, p.pid); vcCall(p.pid); }
+    if (net.conn) vcCall(net.conn.peer);
     selectMap(m.map);
     netStatus('Joined! ' + netPlayers() + '  -  click to START');
     return;
@@ -1220,7 +1222,7 @@ function netJoin(raw) {
   netStatus('Connecting...');
   const c = net.peer.connect('abreaker-' + code, { reliable: true });
   const to = setTimeout(() => { if (!net.on) { netStatus('Could not connect. Check the code.'); try { c.close(); } catch (e) { /* ignore */ } } }, 12000);
-  c.on('open', () => { net.conn = c; c.send({ t: 'hello', name: playerInfo.name, emoji: playerInfo.emoji }); });
+  c.on('open', () => { net.conn = c; c.send({ t: 'hello', name: playerInfo.name, emoji: playerInfo.emoji, pid: net.peer.id }); });
   c.on('data', clientGot);
   c.on('close', () => { clearTimeout(to); if (net.client) { netStatus('Disconnected from host.'); if (state === 'play') toast('HOST LEFT'); } });
   c.on('error', () => netStatus('Connection error.'));
@@ -1237,6 +1239,7 @@ function netInit() {
     else if (e.type === 'peer-unavailable') netStatus('No game found with that code.');
     else netStatus('Network problem: ' + e.type);
   });
+  net.peer.on('call', (call) => { vcInit().then((s) => { try { call.answer(s); vcAttach(call.peer, call); } catch (e) { /* ignore */ } }); });
   net.peer.on('connection', (c) => {
     c.on('data', (m) => hostGot(c, m));
     c.on('close', () => {
@@ -1326,6 +1329,108 @@ chatBar.querySelector('button').addEventListener('click', () => closeChat(true))
 document.addEventListener('keydown', (e) => {
   if (!chat.open && (e.code === 'KeyT' || e.code === 'Enter') && state === 'play' && locked && !e.repeat) { e.preventDefault(); openChat(); }
 }, true);
+
+
+/* ---- voice chat: mic permission is asked on the first tap/click; everyone in the room hears each other (WebRTC mesh via PeerJS) ---- */
+const vc = { p: null, mic: null, on: true, calls: new Map(), audio: new Map(), watch: new Map(), ctx: null, denied: false };
+{
+  const st = document.createElement('style');
+  st.textContent = '#voicebar{position:fixed;right:14px;top:96px;z-index:9;display:none;flex-direction:column;align-items:flex-end;gap:4px;font:700 13px "Segoe UI",sans-serif;color:#fff;text-shadow:0 1px 3px #000}' +
+    '#voicebar button{pointer-events:auto;padding:5px 10px;font:800 12px "Segoe UI",sans-serif;background:rgba(0,0,0,.5);color:#fff;border:2px solid #3ddc84;border-radius:8px}#voicebar button.off{border-color:#ff4d4d;color:#ff9a9a}' +
+    '#voicebar .sp{background:rgba(0,0,0,.45);border-radius:6px;padding:2px 8px;color:#7dffb0}';
+  document.head.appendChild(st);
+}
+const voiceBar = document.createElement('div'); voiceBar.id = 'voicebar';
+voiceBar.innerHTML = '<button id="micbtn">MIC ON (V)</button><div id="speakers"></div>';
+document.body.appendChild(voiceBar);
+const micBtn = voiceBar.querySelector('#micbtn'), speakersEl = voiceBar.querySelector('#speakers');
+['mousedown', 'touchstart'].forEach((ev) => voiceBar.addEventListener(ev, (e) => e.stopPropagation(), { passive: true }));
+function vcContext() {
+  if (!vc.ctx) { const C = window.AudioContext || window.webkitAudioContext; if (C) vc.ctx = new C(); }
+  if (vc.ctx && vc.ctx.state === 'suspended') vc.ctx.resume().catch(() => {});
+  return vc.ctx;
+}
+function vcWatch(id, stream) {
+  const ctx = vcContext();
+  if (!ctx || !stream || !stream.getAudioTracks().length) return;
+  try {
+    const an = ctx.createAnalyser(); an.fftSize = 256;
+    ctx.createMediaStreamSource(stream).connect(an);
+    vc.watch.set(id, { an, buf: new Uint8Array(an.fftSize), lvl: 0 });
+  } catch (e) { /* ignore */ }
+}
+function vcInit() {
+  if (vc.p) return vc.p;
+  vc.p = (async () => {
+    const ctx = vcContext();
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      vc.mic = s; vcWatch('me', s); vcApplyMute();
+      return s;
+    } catch (e) {
+      vc.denied = true;
+      vc.on = false;
+      try { toast('MIC BLOCKED - you can still hear others'); } catch (x) { /* ignore */ }
+      return ctx ? ctx.createMediaStreamDestination().stream : new MediaStream();
+    }
+  })().then((s) => { vcRefresh(); return s; });
+  return vc.p;
+}
+function vcApplyMute() { if (vc.mic) for (const t of vc.mic.getAudioTracks()) t.enabled = vc.on; }
+function vcToggle() {
+  if (vc.denied) { vc.p = null; vc.denied = false; vc.on = true; vcInit(); toast('ASKING FOR MIC...'); return; }
+  vc.on = !vc.on; vcApplyMute(); vcRefresh();
+  try { toast(vc.on ? 'MIC ON' : 'MIC MUTED'); } catch (e) { /* ignore */ }
+}
+function vcRefresh() {
+  micBtn.textContent = vc.denied ? 'MIC BLOCKED - TAP' : vc.on ? 'MIC ON (V)' : 'MIC MUTED (V)';
+  micBtn.className = vc.on && !vc.denied ? '' : 'off';
+  voiceBar.style.display = net.on ? 'flex' : 'none';
+}
+function vcAttach(pid, call) {
+  const old = vc.calls.get(pid);
+  if (old && old !== call) { try { old.close(); } catch (e) { /* ignore */ } }
+  vc.calls.set(pid, call);
+  call.on('stream', (rs) => {
+    let a = vc.audio.get(pid);
+    if (!a) { a = new Audio(); a.autoplay = true; vc.audio.set(pid, a); }
+    a.srcObject = rs; const p = a.play(); if (p && p.catch) p.catch(() => {});
+    vcWatch(pid, rs);
+  });
+  call.on('close', () => vcDrop(pid, call));
+  call.on('error', () => vcDrop(pid, call));
+}
+function vcDrop(pid, call) {
+  if (call && vc.calls.get(pid) !== call) return;
+  vc.calls.delete(pid); vc.watch.delete(pid);
+  const a = vc.audio.get(pid); if (a) { a.srcObject = null; vc.audio.delete(pid); }
+}
+function vcCall(pid) {
+  if (!pid || !net.peer || pid === net.peer.id || vc.calls.has(pid)) return;
+  vcInit().then((stream) => {
+    if (vc.calls.has(pid) || !net.peer) return;
+    try { vcAttach(pid, net.peer.call(pid, stream)); } catch (e) { /* ignore */ }
+  });
+}
+setInterval(() => {
+  vcRefresh();
+  if (!net.on) return;
+  const names = [];
+  for (const [id, w] of vc.watch) {
+    w.an.getByteTimeDomainData(w.buf);
+    let sum = 0;
+    for (let i = 0; i < w.buf.length; i++) { const v = (w.buf[i] - 128) / 128; sum += v * v; }
+    w.lvl = Math.sqrt(sum / w.buf.length);
+    if (w.lvl > 0.035 && (id !== 'me' || vc.on)) {
+      if (id === 'me') names.push('YOU');
+      else { let n = 'Player'; for (const r of net.remotes.values()) if (r.pid === id) n = r.info.name; names.push(n); }
+    }
+  }
+  speakersEl.innerHTML = names.map((n) => '<div class="sp">🔊 ' + String(n).replace(/[<>&]/g, '') + '</div>').join('');
+}, 150);
+document.addEventListener('pointerdown', () => { vcInit(); }, { once: true, capture: true });
+document.addEventListener('keydown', (e) => { if (e.code === 'KeyV' && locked && !chat.open && !e.repeat && state === 'play') vcToggle(); });
+micBtn.addEventListener('click', vcToggle);
 
 let toastTimer = 0, bannerTimer = 0, hitTimer = 0;
 function toast(t) {
@@ -2839,6 +2944,7 @@ window.AB = {
   },
   pause() { if (state === 'play' && locked) { locked = false; showPause(); } },
   assist,
+  mic() { vcToggle(); },
   chat() { if (chat.open) closeChat(false); else openChat(); },
   look(dx, dy) {
     if (!locked || player.dead || chat.open) return;
