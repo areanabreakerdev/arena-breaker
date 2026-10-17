@@ -1,0 +1,24 @@
+html, body { touch-action: none; -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+#controls { display: none !important; }
+#panel { transform: scale(.78); transform-origin: top center; max-height: 128vh; overflow-y: auto; }
+#adminbtn { top: 8px; left: 8px; padding: 6px 10px; font-size: 12px; }
+#tc { position: fixed; inset: 0; z-index: 20; pointer-events: none; display: none; }
+#tc.on { display: block; }
+#tc .b { position: absolute; pointer-events: auto; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(255,255,255,.14); border: 2px solid rgba(255,255,255,.4); color: #fff; font: 700 13px sans-serif; letter-spacing: 1px; touch-action: none; }
+#tc .b.down { background: rgba(255,154,46,.55); }
+#tc #look { position: absolute; right: 0; top: 0; width: 55%; height: 100%; pointer-events: auto; }
+#tc #stick { position: absolute; left: 4vh; bottom: 6vh; width: 26vh; height: 26vh; border-radius: 50%; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.3); pointer-events: auto; touch-action: none; }
+#tc #knob { position: absolute; left: 50%; top: 50%; width: 11vh; height: 11vh; margin: -5.5vh 0 0 -5.5vh; border-radius: 50%; background: rgba(255,255,255,.35); }
+#tc #fire { right: 5vh; bottom: 14vh; width: 20vh; height: 20vh; background: rgba(255,60,60,.3); font-size: 16px; }
+#tc #jump { right: 27vh; bottom: 6vh; width: 14vh; height: 14vh; }
+#tc #ads { right: 27vh; bottom: 24vh; width: 12vh; height: 12vh; }
+#tc #slide { right: 5vh; bottom: 36vh; width: 12vh; height: 12vh; }
+#tc #rel { right: 42vh; bottom: 14vh; width: 11vh; height: 11vh; }
+#tc #gren { right: 42vh; bottom: 28vh; width: 11vh; height: 11vh; }
+#tc #pause { left: 50%; top: 8px; margin-left: -20px; width: 40px; height: 40px; }
+#tc .w { top: 10px; width: 9vh; height: 9vh; border-radius: 12px; }
+#tc #lockb { right: 5vh; bottom: 50vh; width: 11vh; height: 11vh; display: none; background: rgba(255,0,0,.3); }
+#tc #skill { right: 42vh; bottom: 42vh; width: 11vh; height: 11vh; background: rgba(255,204,102,.25); }
+#tc #chatb { left: 50%; top: 8px; margin-left: 30px; width: 11vh; height: 6vh; border-radius: 10px; font-size: 1.8vh; }
+#tc #assb { left: 50%; top: 8px; margin-left: 85px; width: 13vh; height: 6vh; border-radius: 10px; font-size: 1.6vh; }
+#tc #autob { left: 50%; top: 8px; margin-left: 148px; width: 13vh; height: 6vh; border-radius: 10px; font-size: 1.6vh; }

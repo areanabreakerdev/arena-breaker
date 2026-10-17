@@ -983,6 +983,7 @@ function netHandle(m) {
     case 'hit': if (r && m.to === net.myId && state === 'play') hurtPlayer(m.dmg, r.info, r.st ? { x: r.st.x, z: r.st.z } : null); break;
     case 'died': { const v = infoOf(m.id); if (v && state === 'play') registerKill(infoOf(m.k) || v, v, m.kind || 'bullet'); break; }
     case 'time': if (state === 'play') roundT = m.r; break;
+    case 'chat': if (r && typeof m.x === 'string') addChat(r.info.name, hexCss(r.info.color), m.x); break;
   }
 }
 function hostGot(c, m) {
@@ -1091,6 +1092,60 @@ joinIn.addEventListener('input', () => { joinIn.value = joinIn.value.toUpperCase
 joinIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') netJoin(joinIn.value); });
 netInit();
 
+
+
+/* ---- text chat (T or Enter on PC, CHAT button on phone); other players see it ---- */
+const chat = { open: false, hadLock: false, last: 0 };
+{
+  const st = document.createElement('style');
+  st.textContent = '#chatlog{position:fixed;left:14px;bottom:96px;width:min(420px,60vw);display:flex;flex-direction:column;gap:3px;pointer-events:none;z-index:9;font:600 15px "Segoe UI",sans-serif;color:#fff;text-shadow:0 1px 3px #000}' +
+    '#chatlog div{background:rgba(0,0,0,.42);border-radius:6px;padding:3px 8px;word-break:break-word;transition:opacity .6s}#chatlog div.old{opacity:0}#chatlog.open div.old{opacity:1}' +
+    '#chatbar{position:fixed;left:14px;bottom:56px;width:min(420px,70vw);display:none;gap:6px;z-index:10}#chatbar input{flex:1;min-width:0;padding:8px 10px;font:600 16px "Segoe UI",sans-serif;background:rgba(10,12,16,.88);color:#fff;border:2px solid rgba(80,200,255,.7);border-radius:8px;outline:none}' +
+    '#chatbar button{padding:8px 14px;font:800 14px "Segoe UI",sans-serif;background:#2fa8ff;color:#fff;border:0;border-radius:8px}';
+  document.head.appendChild(st);
+}
+const chatLog = document.createElement('div'); chatLog.id = 'chatlog';
+const chatBar = document.createElement('div'); chatBar.id = 'chatbar';
+chatBar.innerHTML = '<input id="chatin" maxlength="80" autocomplete="off" placeholder="Type a message, Enter to send"><button id="chatsend">SEND</button>';
+document.body.appendChild(chatLog); document.body.appendChild(chatBar);
+const chatIn = chatBar.querySelector('input');
+function addChat(name, color, text) {
+  const d = document.createElement('div');
+  const b = document.createElement('b'); b.style.color = color; b.textContent = name + ': ';
+  d.appendChild(b); d.appendChild(document.createTextNode(String(text).slice(0, 80)));
+  chatLog.appendChild(d);
+  while (chatLog.children.length > 8) chatLog.removeChild(chatLog.firstChild);
+  setTimeout(() => d.classList.add('old'), 9000);
+}
+function openChat() {
+  if (state !== 'play' || chat.open || !locked) return;
+  chat.open = true;
+  chat.hadLock = document.pointerLockElement === renderer.domElement;
+  clearInput();
+  chatBar.style.display = 'flex'; chatLog.classList.add('open');
+  if (chat.hadLock && document.exitPointerLock) document.exitPointerLock();
+  setTimeout(() => chatIn.focus(), 0);
+}
+function closeChat(send) {
+  if (!chat.open) return;
+  const text = chatIn.value.trim();
+  chatIn.value = ''; chatIn.blur();
+  chat.open = false; chatBar.style.display = 'none'; chatLog.classList.remove('open');
+  if (send && text && performance.now() - chat.last > 600) {
+    chat.last = performance.now();
+    addChat(playerInfo.name, hexCss(playerInfo.color), text);
+    if (net.on) net.send({ t: 'chat', x: text.slice(0, 80) });
+    else addChat('', '#ffd24a', '(nobody online to hear you - share your code!)');
+  }
+  if (chat.hadLock && renderer.domElement.requestPointerLock) { try { const p = renderer.domElement.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
+}
+chatBar.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') closeChat(true); else if (e.key === 'Escape') closeChat(false); });
+chatBar.addEventListener('mousedown', (e) => e.stopPropagation());
+chatBar.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+chatBar.querySelector('button').addEventListener('click', () => closeChat(true));
+document.addEventListener('keydown', (e) => {
+  if (!chat.open && (e.code === 'KeyT' || e.code === 'Enter') && state === 'play' && locked && !e.repeat) { e.preventDefault(); openChat(); }
+}, true);
 
 let toastTimer = 0, bannerTimer = 0, hitTimer = 0;
 function toast(t) {
@@ -2242,6 +2297,52 @@ function aimbot() {
   player.yaw = Math.atan2(-best.dx, -best.dz);
   player.pitch = Math.atan2(best.dy + drop, flat);
 }
+
+// ---- mobile balanced aim assist + auto shoot (switched on by the touch UI only) ----
+const assist = { aim: false, auto: false, lockT: 0, tgt: null };
+function assistUpdate(dt) {
+  if (!(assist.aim || assist.auto) || player.dead || state !== 'play' || !locked) { assist.tgt = null; return; }
+  const w = curW();
+  if (w.melee) { assist.tgt = null; return; }
+  const pb = player.body.position;
+  const ox = pb.x, oy = pb.y + 1.2, oz = pb.z;
+  const look = lookDir();
+  const scoped = player.ads && w.ads === 22;
+  const cone = Math.cos((firing || player.ads ? 11 : 7) * Math.PI / 180);
+  let best = null, bestScore = -1;
+  for (const e of enemies) {
+    if (e.dead || e.info.hidden || e.invuln > 0 && !e.remote) continue;
+    const c = chestOf(e.info);
+    if (!c) continue;
+    const dx = c.x - ox, dy = c.y + 0.5 - oy, dz = c.z - oz;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > 45 || dist < 0.5) continue;
+    const dot = (dx * look.x + dy * look.y + dz * look.z) / dist;
+    if (dot < cone || dot <= bestScore) continue;
+    const blocked = rayCast(new CANNON.Vec3(ox, oy, oz), new CANNON.Vec3(c.x, c.y + 0.5, c.z), GRP.STATIC | GRP.PROP);
+    if (blocked && blocked.dist < dist - 0.6) continue;
+    bestScore = dot; best = { dx, dy, dz, dist, dot };
+  }
+  if (!best) { assist.tgt = null; assist.lockT = 0; return; }
+  assist.tgt = best;
+  assist.lockT += dt;
+  if (assist.aim) {
+    // pull the view toward the target: gentle normally, firmer while shooting / aiming down sights
+    const flat = Math.hypot(best.dx, best.dz);
+    const ty = Math.atan2(-best.dx, -best.dz);
+    const tp = Math.atan2(best.dy + best.dist * 0.012, flat);
+    let dyaw = ty - player.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    const rate = (firing || player.ads ? 7 : 2.8) * (1 - best.dot > 0.004 ? 1 : 0.4);
+    const k = Math.min(1, rate * dt) * 0.55;
+    player.yaw += dyaw * k;
+    player.pitch += (tp - player.pitch) * k;
+  }
+  if (assist.auto && assist.lockT > 0.22 && best.dot > Math.cos(2.6 * Math.PI / 180) && !scoped && player.reloadT <= 0 && player.swapT <= 0) {
+    if (!w.auto) player.semiLock = false;
+    fire();
+  }
+}
+
 function fire() {
   if (player.dead || player.swapT > 0 || player.fireCd > 0) return;
   const w = curW();
@@ -2275,6 +2376,7 @@ function fire() {
   player.yaw += rand(-0.002, 0.002);
   player.heat = Math.min(1, player.heat + (w.auto ? 0.1 : 0.25));
   player.kickBack = 1;
+  player.shots = (player.shots || 0) + 1;
   player.flash = 0.05;
   sfx.shot();
 }
@@ -2509,6 +2611,7 @@ window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 
 document.addEventListener('pointerlockchange', () => {
+  if (chat.open && document.pointerLockElement !== renderer.domElement) return;
   locked = document.pointerLockElement === renderer.domElement;
   if (locked) {
     hud.overlay.classList.add('hidden');
@@ -2555,8 +2658,10 @@ window.AB = {
     if (state === 'menu') startMatch();
   },
   pause() { if (state === 'play' && locked) { locked = false; showPause(); } },
+  assist,
+  chat() { if (chat.open) closeChat(false); else openChat(); },
   look(dx, dy) {
-    if (!locked || player.dead) return;
+    if (!locked || player.dead || chat.open) return;
     const sens = 0.0034 * prefs.sens * (player.ads ? (curW().ads === 22 ? 0.3 : 0.65) : 1);
     player.yaw -= dx * sens;
     player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - dy * sens));
@@ -2572,14 +2677,14 @@ window.AB = {
   toggleLock() { if (admin.auth) { admin.lock = !admin.lock; toast(admin.lock ? 'AIM LOCK ON' : 'AIM LOCK OFF'); } },
 };
 document.addEventListener('mousemove', (e) => {
-  if (!locked || player.dead) return;
+  if (!locked || player.dead || chat.open) return;
   const sens = 0.0022 * prefs.sens * (player.ads ? (curW().ads === 22 ? 0.3 : 0.65) : 1);
   player.yaw -= e.movementX * sens;
   player.pitch -= e.movementY * sens;
   player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch));
 });
 document.addEventListener('mousedown', (e) => {
-  if (!locked) return;
+  if (!locked || chat.open) return;
   if (e.button === 0) firing = true;
   if (e.button === 2 && !curW().melee && player.reloadT <= 0) player.ads = true;
 });
@@ -2630,6 +2735,7 @@ document.addEventListener('keydown', (e) => {
 $('adminbtn').addEventListener('click', (e) => { e.stopPropagation(); toggleAdmin(); });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('keydown', (e) => {
+  if (chat.open) return;
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   if (!locked) return;
   if (e.code === 'KeyC') {
@@ -2694,11 +2800,13 @@ function gmat(color, kind) {
     : { color, roughness: 0.65, metalness: 0.25 };
   return (GMATS[key] = new THREE.MeshStandardMaterial(opt));
 }
+let gParent = null;
+const VM = { mag: null, slide: null, handle: null, pump: null, handleZ: 0 };
 function gbox(w, h, d, x, y, z, color, kind = 'metal', rx = 0, rz = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), gmat(color, kind));
   m.position.set(x, y, z);
   m.rotation.x = rx; m.rotation.z = rz;
-  gun.add(m);
+  (gParent || gun).add(m);
   return m;
 }
 // barrel-style cylinder lying along Z: rFront is the muzzle-side radius, rBack the rear radius
@@ -2706,7 +2814,7 @@ function gcyl(rFront, len, x, y, z, color, kind = 'metal', rBack = rFront) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(rBack, rFront, len, 14), gmat(color, kind));
   m.rotation.x = Math.PI / 2;
   m.position.set(x, y, z);
-  gun.add(m);
+  (gParent || gun).add(m);
   return m;
 }
 const G_DARK = 0x16171b, G_MID = 0x2a2c32, G_LIGHT = 0x4a4d55, G_STEEL = 0x9aa0aa, G_WOOD = 0x6b4426, G_GRIP = 0x1f2024;
@@ -2738,9 +2846,11 @@ function gMuzzle(z, r, c, style) {
   else { gcyl(r * 1.7, 0.05, 0, 0.015, z - 0.02, G_DARK, 'metal'); for (let i = 0; i < 3; i++) gbox(r * 3.6, r * 0.8, 0.006, 0, 0.015, z - 0.005 - i * 0.012, G_LIGHT, 'metal'); }
 }
 function gMag(x, y, z, w, h, d, rx, color, glow) {
+  const grp = new THREE.Group(); gun.add(grp); VM.mag = grp; gParent = grp;
   gbox(w, h, d, x, y, z, color, 'poly', rx);
   gbox(w + 0.004, 0.012, d + 0.004, x, y - h / 2 * Math.cos(rx) - 0.004, z + (h / 2) * Math.sin(-rx) * -1, G_DARK, 'metal', rx);
   if (glow) gbox(w + 0.002, 0.006, d * 0.5, x, y + h * 0.15, z, glow, 'glow', rx);
+  gParent = null;
 }
 function gGrip(x, y, z, rx, color) {
   gbox(0.036, 0.1, 0.042, x, y, z, color || G_GRIP, 'poly', rx);
@@ -2770,7 +2880,7 @@ function buildGunModel(id) {
     gbox(0.07, 0.072, 0.34, 0, 0.02, 0.1, c); // upper receiver
     gbox(0.066, 0.058, 0.26, 0, -0.04, 0.12, G_MID, 'poly'); // lower receiver
     gbox(0.012, 0.03, 0.05, 0.036, 0.03, 0.12, G_DARK); // ejection port
-    gbox(0.014, 0.014, 0.03, -0.04, 0.045, 0.2, G_STEEL); // charging handle
+    VM.handle = gbox(0.014, 0.014, 0.03, -0.04, 0.045, 0.2, G_STEEL); VM.handleZ = 0.2; // charging handle
     gbox(0.065, 0.065, o.hg, 0, 0.018, -0.07 - o.hg / 2, o.hgColor || c); // handguard
     for (let i = 0; i < Math.floor(o.hg / 0.045); i++) gbox(0.068, 0.012, 0.02, 0, 0.018, -0.1 - i * 0.045, G_DARK); // vents
     gcyl(0.013, o.len, 0, 0.018, -0.07 - o.hg - o.len / 2 + 0.02, G_STEEL);
@@ -2826,7 +2936,7 @@ function buildGunModel(id) {
     gbox(0.062, 0.085, big ? 0.44 : 0.38, 0, 0.015, 0.1, c); gbox(0.06, 0.05, 0.24, 0, -0.04, 0.12, G_MID, 'poly');
     gbox(0.058, 0.058, 0.22, 0, 0.012, -0.2, big ? G_MID : c, 'poly'); gcyl(0.012, big ? 0.62 : 0.42, 0, 0.012, big ? -0.55 : -0.5, G_STEEL);
     gMuzzle(big ? -0.88 : -0.7, 0.012, c, 'brake');
-    gbox(0.012, 0.012, 0.06, 0.04, 0.03, 0.2, G_STEEL); gbox(0.016, 0.016, 0.016, 0.052, 0.03, 0.23, G_STEEL); // bolt handle
+    { const bh = new THREE.Group(); gun.add(bh); gParent = bh; gbox(0.012, 0.012, 0.06, 0.04, 0.03, 0.2, G_STEEL); gbox(0.016, 0.016, 0.016, 0.052, 0.03, 0.23, G_STEEL); gParent = null; VM.handle = bh; VM.handleZ = 0; } // bolt handle
     gRail(0, 0.06, 0.2, 0.46); gOptic('scope', 0.062, 0.0, g || 0x66aaff);
     gTriggerGuard(-0.07, 0.14); gGrip(0, -0.12, 0.2, 0.25); gMag(0, -0.1, 0.08, 0.04, 0.09, 0.07, 0, G_MID, g);
     gbox(0.012, 0.15, 0.012, 0.035, -0.06, -0.3, G_STEEL, 'metal', 0.35); gbox(0.012, 0.15, 0.012, -0.035, -0.06, -0.3, G_STEEL, 'metal', 0.35); // bipod
@@ -2835,8 +2945,9 @@ function buildGunModel(id) {
   } else if (m === 'shotgun' || m === 'dbl' || m === 'sawed') {
     if (m === 'shotgun') {
       gbox(0.07, 0.09, 0.3, 0, 0.0, 0.1, c); gcyl(0.017, 0.62, 0, 0.03, -0.32, G_STEEL); gcyl(0.014, 0.5, 0, -0.012, -0.26, G_DARK); // barrel + mag tube
+      { const pg = new THREE.Group(); gun.add(pg); gParent = pg; VM.pump = pg;
       gbox(0.062, 0.07, 0.2, 0, -0.012, -0.22, id === 'autoshot' ? G_MID : G_WOOD, id === 'autoshot' ? 'poly' : 'wood');
-      for (let i = 0; i < 5; i++) gbox(0.064, 0.006, 0.01, 0, -0.012, -0.15 - i * 0.03, G_DARK);
+      for (let i = 0; i < 5; i++) gbox(0.064, 0.006, 0.01, 0, -0.012, -0.15 - i * 0.03, G_DARK); gParent = null; }
       gbox(0.008, 0.012, 0.012, 0, 0.05, -0.62, 0xffdd55, 'glow'); gMuzzle(-0.64, 0.017, c, 'brake');
       if (id === 'autoshot') gcyl(0.055, 0.1, 0, -0.1, 0.06, G_MID, 'metal'); // drum
       gGrip(0, -0.1, 0.17, 0.3, id === 'autoshot' ? G_GRIP : G_WOOD); gTriggerGuard(-0.058, 0.1); gStock(0.2, id === 'autoshot' ? 'tube' : 'wood', c);
@@ -2869,10 +2980,12 @@ function buildGunModel(id) {
   } else { // pistol / cannon / machine pistol
     const big = m === 'cannon', mp = m === 'machpist';
     const sl = big ? 0.3 : mp ? 0.24 : 0.24;
+    const sg = new THREE.Group(); gun.add(sg); gParent = sg; VM.slide = sg;
     gbox(big ? 0.056 : 0.046, big ? 0.075 : 0.062, sl, 0, 0.015, 0, c); // slide
     for (let i = 0; i < 5; i++) gbox(big ? 0.058 : 0.048, 0.05, 0.006, 0, 0.015, 0.05 + i * 0.012, G_DARK); // serrations
-    gbox(0.042, 0.03, sl * 0.8, 0, -0.03, -0.01, G_MID, 'poly'); // frame
     gbox(0.014, 0.012, 0.02, 0, 0.06, -sl / 2 + 0.03, G_DARK); gbox(0.03, 0.012, 0.014, 0, 0.056, sl / 2 - 0.02, G_DARK); // sights
+    gParent = null;
+    gbox(0.042, 0.03, sl * 0.8, 0, -0.03, -0.01, G_MID, 'poly'); // frame
     gcyl(0.012, 0.04, 0, 0.012, -sl / 2 - 0.02, G_STEEL);
     if (big) gRail(0, 0.054, sl / 2 - 0.02, sl * 0.8);
     if (g) gbox(0.006, 0.01, sl * 0.7, 0.026, 0.015, 0, g, 'glow');
@@ -2899,7 +3012,7 @@ function buildGunModel(id) {
 }
 
 function buildViewModel() {
-  neonCone = null;
+  neonCone = null; gParent = null; VM.mag = VM.slide = VM.handle = VM.pump = null;
   for (const c of gun.children.slice()) if (c !== flashMesh) { gun.remove(c); c.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
   const mk = (w, h, d, x, y, z, c = 0x222428, par = gun) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.6 }));
@@ -3049,6 +3162,8 @@ function buildViewModel() {
   flashMesh.position.set(0, 0.015, fz);
   gunBase.copy(GUN_HIP);
 }
+const vmS = { z: 0, vz: 0, p: 0, vp: 0, x: 0, vx: 0, r: 0, vr: 0 };
+let vmShots = 0, vmSince = 9;
 const GUN_ADS = new THREE.Vector3(0.0, -0.155, -0.42);
 const gunBase = GUN_HIP.clone();
 
@@ -3065,6 +3180,7 @@ function update(dt) {
     if (net.host) { net.timeT -= dt; if (net.timeT <= 0) { net.timeT = 1; net.send({ t: 'time', r: roundT }); } }
   }
   if (admin.lock && admin.auth && state === 'play' && !player.dead && locked) aimbot();
+  assistUpdate(dt);
   updatePlayer(dt);
   if (player.abT > 0) player.abT = Math.max(0, player.abT - dt);
   if (player.abCd) for (const k in player.abCd) if (player.abCd[k] > 0) player.abCd[k] = Math.max(0, player.abCd[k] - dt);
@@ -3161,15 +3277,39 @@ function updateCamera(dt) {
   // weapon: smooth base position + bob + recoil + sprint/slide lowering
   sprintBlend += ((player.sprinting || player.sliding ? 1 : 0) - sprintBlend) * Math.min(1, 9 * dt);
   gunBase.lerp(player.ads ? GUN_ADS : GUN_HIP, Math.min(1, 14 * dt));
-  const reloadK = player.reloadT > 0 ? Math.sin((1 - player.reloadT / (player.reloadMax || 1.9)) * Math.PI) : 0;
+  // ---- shooting: damped spring driven by an impulse per shot (kick back, muzzle climb, side jolt, roll)
+  if ((player.shots || 0) !== vmShots) {
+    vmShots = player.shots || 0; vmSince = 0;
+    const a = player.ads ? 0.45 : 1, w = curW();
+    const p = Math.min(2.2, 0.8 + (w.kick || 0.01) * 60);
+    vmS.vz += 1.5 * p * a; vmS.vp += 2.0 * p * a; vmS.vx += rand(-0.15, 0.15) * p * a; vmS.vr += rand(-1, 1) * 1.1 * p * a;
+  }
+  vmSince += dt;
+  const sub = Math.min(dt, 0.012);
+  for (const k of ['z', 'p', 'x', 'r']) {
+    const st = vmS, v = 'v' + k;
+    st[v] += (-260 * st[k] - 22 * st[v]) * sub; st[k] += st[v] * sub;
+  }
+  // ---- reload: keyframed phases (tilt out, mag out, mag in, seat, rack, return)
+  const rk = player.reloadT > 0 ? 1 - player.reloadT / (player.reloadMax || 1.9) : 0;
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const tilt = rk > 0 ? ss(0, 0.18, rk) - ss(0.85, 1, rk) : 0;       // gun rolls and lowers
+  const magOut = rk > 0 ? ss(0.2, 0.38, rk) - ss(0.5, 0.68, rk) : 0; // 0 = seated, 1 = fully removed
+  const seat = rk > 0 ? Math.sin(Math.PI * ss(0.66, 0.78, rk)) : 0;  // thud when the mag locks in
+  const rack = rk > 0 ? Math.sin(Math.PI * ss(0.76, 0.92, rk)) : 0;  // bolt / slide / pump cycle
+  if (VM.mag) { VM.mag.position.set(0.05 * magOut, -0.28 * magOut, 0.03 * magOut); VM.mag.rotation.z = 0.5 * magOut; VM.mag.visible = magOut < 0.98; }
+  if (VM.handle) VM.handle.position.z = (VM.handle.isGroup ? 0 : VM.handleZ) + rack * 0.06 + vmS.z * 0.2;
+  if (VM.slide) VM.slide.position.z = rack * 0.05 + Math.max(0, vmS.z) * 0.9;
+  if (VM.pump) { const t = Math.min(1, vmSince / 0.55); VM.pump.position.z = (vmSince < 0.55 && player.shots ? 0.09 * Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.1) / 0.8))) : 0) + rack * 0.09; }
+  const reloadK = tilt;
   gun.position.set(
-    gunBase.x + Math.sin(ph) * 0.016 * amp - sprintBlend * 0.05,
-    gunBase.y + Math.sin(ph * 2) * 0.014 * amp - player.kickBack * 0.006 - sprintBlend * 0.07,
-    gunBase.z + player.kickBack * 0.035
+    gunBase.x + Math.sin(ph) * 0.016 * amp - sprintBlend * 0.05 + vmS.x - tilt * 0.05,
+    gunBase.y + Math.sin(ph * 2) * 0.014 * amp - player.kickBack * 0.006 - sprintBlend * 0.07 - tilt * 0.07 - seat * 0.02 + vmS.p * 0.01,
+    gunBase.z + player.kickBack * 0.02 + vmS.z * 0.07 + tilt * 0.03
   );
-  gun.rotation.x = player.kickBack * 0.05 + reloadK * 0.9 + sprintBlend * 0.25;
-  gun.rotation.y = -sprintBlend * 0.4;
-  gun.rotation.z = reloadK * 0.3 + sb * 0.25;
+  gun.rotation.x = vmS.p * 0.1 + player.kickBack * 0.02 + reloadK * 0.55 + seat * 0.06 + sprintBlend * 0.25;
+  gun.rotation.y = -sprintBlend * 0.4 - tilt * 0.35;
+  gun.rotation.z = vmS.r * 0.05 + reloadK * 0.7 + sb * 0.25;
   if (player.swapT > 0) { player.swapT -= dt; gun.position.y -= Math.max(0, player.swapT) * 1.1; }
   if (player.swing > 0) {
     player.swing = Math.max(0, player.swing - dt * 3.2);
