@@ -1,7 +1,5 @@
 /* ===== Arena Breaker - touch UI (landscape) ===== */
 html, body { touch-action: none; -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
-#controls { display: none !important; }
-#panel { transform: scale(.78); transform-origin: top center; max-height: 128vh; overflow-y: auto; }
 
 /* ---- HUD, shrunk and re-laid out so nothing sits under a finger ---- */
 html body #topleft { left: 8px; top: 6px; }

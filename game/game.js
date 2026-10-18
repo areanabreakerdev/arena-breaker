@@ -975,8 +975,135 @@ const ABIL_OF = {
 for (const k in ABIL_OF) WEAPONS[k].ability = ABIL_OF[k];
 const SLOTN = ['primary', 'secondary', 'melee', 'admin'];
 const DIFFS = { easy: { skill: 0.6, dmg: 0.7 }, normal: { skill: 1, dmg: 1 }, hard: { skill: 1.35, dmg: 1.3 } };
+/* ---- weapon wraps: pick one per gun in the loadout options ---- */
+const skinTexCache = {};
+function skinTex(id) {
+  if (skinTexCache[id]) return skinTexCache[id];
+  const blob = (g, s, cols, n, rmin, rmax) => { for (let i = 0; i < n; i++) { g.fillStyle = cols[(Math.random() * cols.length) | 0]; g.beginPath(); g.ellipse(Math.random() * s, Math.random() * s, rand(rmin, rmax), rand(rmin * 0.6, rmax * 0.8), Math.random() * 3, 0, 7); g.fill(); } };
+  const draw = {
+    woodland: (g, s) => { g.fillStyle = '#6a7a46'; g.fillRect(0, 0, s, s); blob(g, s, ['#3e4d2a', '#8a8a52', '#2a331d', '#55623a'], 60, 8, 26); },
+    desert: (g, s) => { g.fillStyle = '#c9ab72'; g.fillRect(0, 0, s, s); blob(g, s, ['#a98a56', '#e0c590', '#8f7449', '#b99a62'], 60, 8, 26); },
+    arctic: (g, s) => { g.fillStyle = '#e8f0f6'; g.fillRect(0, 0, s, s); blob(g, s, ['#b9cfe0', '#ffffff', '#9fb8cc', '#d3e2ee'], 50, 8, 24); },
+    gold: (g, s) => { const gr = g.createLinearGradient(0, 0, s, s); gr.addColorStop(0, '#fff2a8'); gr.addColorStop(0.5, '#e8b020'); gr.addColorStop(1, '#a8760c'); g.fillStyle = gr; g.fillRect(0, 0, s, s); for (let i = 0; i < 120; i++) { g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(Math.random() * s, Math.random() * s, rand(8, 40), 1); } },
+    circuit: (g, s) => { g.fillStyle = '#05070b'; g.fillRect(0, 0, s, s); g.strokeStyle = '#ffffff'; g.lineWidth = 2; for (let i = 0; i < 26; i++) { let x = Math.round(Math.random() * 8) * (s / 8), y = Math.round(Math.random() * 8) * (s / 8); g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { if (Math.random() < 0.5) x += (Math.random() < 0.5 ? -1 : 1) * (s / 8); else y += (Math.random() < 0.5 ? -1 : 1) * (s / 8); g.lineTo(x, y); } g.stroke(); g.fillStyle = '#fff'; g.fillRect(x - 3, y - 3, 6, 6); } },
+    carbon: (g, s) => { g.fillStyle = '#7a0f16'; g.fillRect(0, 0, s, s); for (let y = 0; y < s; y += 8) for (let x = 0; x < s; x += 8) { g.fillStyle = ((x + y) / 8) % 2 ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.10)'; g.fillRect(x, y, 8, 4); g.fillStyle = ((x + y) / 8) % 2 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.5)'; g.fillRect(x, y + 4, 8, 4); } },
+    galaxy: (g, s) => { const gr = g.createLinearGradient(0, 0, s, s); gr.addColorStop(0, '#1b0b4a'); gr.addColorStop(0.5, '#5a1a8c'); gr.addColorStop(1, '#0c1a5a'); g.fillStyle = gr; g.fillRect(0, 0, s, s); blob(g, s, ['rgba(255,80,200,0.25)', 'rgba(80,160,255,0.25)'], 12, 14, 36); for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(255,255,255,${rand(0.4, 1).toFixed(2)})`; const r = Math.random() < 0.1 ? 2.5 : 1.2; g.fillRect(Math.random() * s, Math.random() * s, r, r); } },
+    magma: (g, s) => { g.fillStyle = '#120807'; g.fillRect(0, 0, s, s); g.strokeStyle = '#ff7a1a'; g.lineWidth = 3; for (let i = 0; i < 16; i++) { let x = Math.random() * s, y = Math.random() * s; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += rand(-22, 22); y += rand(-22, 22); g.lineTo(x, y); } g.stroke(); } },
+  }[id];
+  return (skinTexCache[id] = canvasTex(128, draw, 1, 1));
+}
+const SKINS = {
+  default: { name: 'Default' },
+  woodland: { name: 'Woodland Camo', body: 0xffffff, mid: 0x7d8c5a, tex: 'woodland', metal: 0.2, rough: 0.8 },
+  desert: { name: 'Desert Dune', body: 0xffffff, mid: 0xb8a070, tex: 'desert', metal: 0.2, rough: 0.8 },
+  arctic: { name: 'Arctic Ghost', body: 0xffffff, mid: 0xc6d8e6, tex: 'arctic', metal: 0.3, rough: 0.6, glow: 0x7fd3ff },
+  gold: { name: 'Royal Gold', body: 0xffffff, mid: 0xd9a21f, tex: 'gold', metal: 1, rough: 0.2, glow: 0xffd24a },
+  circuit: { name: 'Neon Circuit', body: 0xffffff, mid: 0x1a2230, tex: 'circuit', metal: 0.6, rough: 0.35, glow: 0x00e5ff, emissiveMap: true },
+  carbon: { name: 'Crimson Carbon', body: 0xffffff, mid: 0x1b1b1f, tex: 'carbon', metal: 0.5, rough: 0.35, glow: 0xff3030 },
+  galaxy: { name: 'Galaxy', body: 0xffffff, mid: 0x2b1a5a, tex: 'galaxy', metal: 0.6, rough: 0.3, glow: 0xc86bff },
+  magma: { name: 'Magma', body: 0xffffff, mid: 0x261310, tex: 'magma', metal: 0.4, rough: 0.5, glow: 0xff7a1a, emissiveMap: true },
+};
+/* ---- gun SKINS (whole-model redesigns, only for the main guns). Wraps above are just materials. ---- */
+const RARITY = { rare: ['RARE', '#4aa3ff'], epic: ['EPIC', '#c06bff'], legendary: ['LEGENDARY', '#ffb020'] };
+const GSKINS = {
+  ar: [
+    { id: 'dragon', name: 'Dragonfang', rar: 'legendary', col: 0xa31a1f, glow: 0xff3a1a, pal: { mid: 0x2a0a0c, steel: 0x5a1a1a, dark: 0x120506 },
+      extra: () => {
+        for (let i = 0; i < 6; i++) gcone(0.014, 0.06 - i * 0.003, 0, 0.082, -0.1 - i * 0.045, 0x120506);
+        for (let i = 0; i < 4; i++) gcone(0.012, 0.05, 0, 0.108, 0.02 + i * 0.06, 0x120506, 'metal', -0.35);
+        for (const sx of [-1, 1]) { gcone(0.014, 0.14, sx * 0.034, 0.06, -0.5, 0x1a0b0c, 'metal', -1.25, sx * 0.25); gcone(0.01, 0.06, sx * 0.016, -0.02, -0.52, 0xe8e0d0, 'metal', Math.PI); gbox(0.004, 0.022, 0.06, sx * 0.037, 0.03, 0.1, 0xff3a1a, 'glow'); for (let i = 0; i < 3; i++) gbox(0.004, 0.012, 0.05, sx * 0.034, 0.022, -0.12 - i * 0.07, 0xff6a2a, 'glow'); }
+        gcone(0.018, 0.12, 0, -0.08, 0.5, 0x120506, 'metal', Math.PI + 0.5);
+      } },
+    { id: 'cyber', name: 'Cyber Core', rar: 'epic', col: 0x101a24, glow: 0x00e5ff, pal: { mid: 0x0c1118, steel: 0x7fa2b8, dark: 0x05080c },
+      extra: () => {
+        for (const [z, r] of [[-0.16, 0.05], [-0.26, 0.045], [-0.38, 0.04], [-0.5, 0.034]]) gtorus(r, 0.004, 0, 0.018, z, 0x00e5ff, 'glow');
+        for (const sx of [-1, 1]) { gbox(0.004, 0.06, 0.2, sx * 0.046, 0.0, -0.2, 0x00e5ff, 'glow'); gbox(0.003, 0.006, 0.3, sx * 0.036, 0.045, 0.12, 0x00e5ff, 'glow'); }
+        gbox(0.018, 0.1, 0.018, 0, -0.13, 0.07, 0x00e5ff, 'glow'); gbox(0.07, 0.01, 0.07, 0, 0.1, 0.0, 0x0c1118); gbox(0.05, 0.002, 0.05, 0, 0.106, 0.0, 0x00e5ff, 'glow');
+      } },
+    { id: 'steam', name: 'Steamwork', rar: 'rare', col: 0x9a6a2a, glow: 0xffb347, pal: { mid: 0x4a2f16, steel: 0xc08a4a, dark: 0x24160a, grip: 0x3a2410 },
+      extra: () => {
+        gcyl(0.011, 0.32, -0.048, 0.01, -0.15, 0xb8651b); gcyl(0.011, 0.14, -0.048, -0.04, 0.02, 0xb8651b); gcyl(0.026, 0.22, 0, -0.045, -0.28, 0x9a6a2a);
+        gdisc(0.03, 0.01, -0.042, 0.02, 0.12, 0xc08a4a); for (let i = 0; i < 8; i++) { const a = (i / 8) * 6.283; gbox(0.01, 0.012, 0.012, -0.044, 0.02 + Math.sin(a) * 0.034, 0.12 + Math.cos(a) * 0.034, 0xc08a4a); }
+        gdisc(0.02, 0.012, -0.042, 0.06, 0.2, 0x24160a); gdisc(0.015, 0.014, -0.043, 0.06, 0.2, 0xffb347, 'glow'); gbox(0.004, 0.014, 0.003, -0.05, 0.062, 0.2, 0x24160a);
+        gcyl(0.012, 0.2, 0, 0.1, 0.0, 0x8a4a14); gcone(0.016, 0.03, 0, 0.1, -0.1, 0x8a4a14, 'metal', -Math.PI / 2);
+      } },
+  ],
+  smg: [
+    { id: 'hornet', name: 'Hornet', rar: 'rare', col: 0xe3b81a, glow: 0xffd000, pal: { mid: 0x1a1a1a, steel: 0x777777, dark: 0x0a0a0a },
+      extra: () => {
+        for (let i = 0; i < 4; i++) gbox(0.073, 0.088, 0.022, 0, 0.01, -0.05 + i * 0.07, 0x141414, 'poly');
+        gcone(0.014, 0.12, 0, 0.012, -0.4, 0x111111, 'metal', -Math.PI / 2); for (const sx of [-1, 1]) { gbox(0.1, 0.004, 0.13, sx * 0.075, 0.06, 0.1, 0x1a1a1a, 'poly', 0, sx * 0.3); gbox(0.07, 0.004, 0.09, sx * 0.07, 0.05, 0.2, 0x1a1a1a, 'poly', 0, sx * 0.2); gbox(0.004, 0.02, 0.05, sx * 0.037, 0.03, 0.0, 0xffd000, 'glow'); }
+      } },
+    { id: 'bubble', name: 'Bubblegum', rar: 'epic', col: 0xff6fb5, glow: 0x7ffcff, pal: { mid: 0xff9fcf, steel: 0xffffff, dark: 0x7a2a58, grip: 0xffe0f0 },
+      extra: () => {
+        gsph(0.04, 0, 0.012, -0.38, 0xff9fcf, 'poly'); gsph(0.025, 0.03, 0.03, -0.36, 0xffd0ea, 'poly');
+        gsph(0.03, -0.055, 0.0, 0.05, 0xff3d8f, 'poly'); gcyl(0.006, 0.08, -0.055, -0.04, 0.05, 0xffffff); gbox(0.004, 0.004, 0.004, -0.05, 0.0, 0.05, 0xffffff);
+        for (let i = 0; i < 4; i++) gbox(0.073, 0.088, 0.012, 0, 0.01, -0.02 + i * 0.06, 0xffffff, 'poly');
+        for (const [x, z] of [[-0.04, 0.0], [-0.04, 0.2], [0.04, 0.1]]) gbox(0.012, 0.012, 0.012, x, 0.08, z, 0xfff27a, 'glow', 0.6, 0.6);
+      } },
+  ],
+  shotgun: [
+    { id: 'skull', name: 'Bonecrusher', rar: 'legendary', col: 0xe6dcc0, glow: 0x66ff88, pal: { mid: 0x3b2f22, steel: 0x8a8070, wood: 0xd8ccb0, grip: 0x2a2218, dark: 0x181410 },
+      extra: () => {
+        gsph(0.058, 0, 0.0, 0.54, 0xe6dcc0, 'poly'); gbox(0.07, 0.04, 0.06, 0, -0.05, 0.54, 0xe6dcc0, 'poly');
+        for (const sx of [-1, 1]) { gsph(0.014, sx * 0.024, 0.01, 0.5, 0x66ff88, 'glow'); gbox(0.008, 0.012, 0.006, sx * 0.016, -0.075, 0.5, 0x3b2f22); }
+        gcone(0.01, 0.025, 0, -0.01, 0.495, 0x3b2f22, 'metal', -Math.PI / 2);
+        for (let i = 0; i < 11; i++) gbox(0.016, 0.014, 0.022, 0, 0.065, 0.2 - i * 0.05, 0xe6dcc0, 'poly');
+        for (let i = 0; i < 5; i++) { gbox(0.074, 0.007, 0.012, 0, -0.012, -0.15 - i * 0.032, 0xe6dcc0, 'poly'); }
+        for (const sx of [-1, 1]) gcone(0.012, 0.05, sx * 0.014, 0.0, -0.66, 0xe6dcc0, 'poly', -Math.PI / 2);
+      } },
+    { id: 'thunder', name: 'Thunderclap', rar: 'epic', col: 0x1a3a8a, glow: 0x66ccff, pal: { mid: 0x0e1d44, steel: 0xb8d4ff, dark: 0x050a1a, wood: 0x14285e },
+      extra: () => {
+        for (let i = 0; i < 6; i++) gtorus(0.03 - i * 0.002, 0.005, 0, 0.03, -0.2 - i * 0.07, 0x66ccff, 'glow');
+        gsph(0.022, 0, 0.03, -0.68, 0xbfeaff, 'glow');
+        const zz = [[0.0, 0.05], [0.025, 0.02], [-0.02, -0.01], [0.02, -0.04]]; zz.forEach(([x, y], i) => gbox(0.004, 0.034, 0.008, -0.037, 0.0 + y, 0.12 + x, 0xbfeaff, 'glow', 0, i % 2 ? 0.7 : -0.7));
+      } },
+  ],
+  sniper: [
+    { id: 'frost', name: 'Frostbite', rar: 'epic', col: 0x9fd8ff, glow: 0x7fe3ff, pal: { mid: 0x2a4a68, steel: 0xe8f6ff, dark: 0x0a1a2a },
+      extra: () => {
+        for (let i = 0; i < 5; i++) gcone(0.018 - i * 0.002, 0.12 - i * 0.012, (i % 2 ? 1 : -1) * 0.03, 0.03, 0.0 - i * 0.12, 0x7fe3ff, 'glow', 0, (i % 2 ? -1 : 1) * 0.5);
+        for (let i = 0; i < 4; i++) gcone(0.012, 0.09 - i * 0.012, 0, -0.04, -0.2 - i * 0.07, 0xc8f0ff, 'glow', Math.PI);
+        gcone(0.03, 0.18, 0, 0.09, 0.3, 0x7fe3ff, 'glow', 0.5); gcone(0.02, 0.12, 0.03, 0.08, 0.32, 0xc8f0ff, 'glow', 0.6, -0.5);
+      } },
+    { id: 'eagle', name: 'Golden Eagle', rar: 'legendary', col: 0xd4a017, glow: 0xffd24a, pal: { mid: 0x3a2a08, steel: 0xfff0b0, dark: 0x14100a },
+      extra: () => {
+        for (const sx of [-1, 1]) for (let i = 0; i < 6; i++) gbox(0.006, 0.014, 0.13 - i * 0.012, sx * 0.04, 0.0 + i * 0.016, 0.3 - i * 0.012, i % 2 ? 0xfff0b0 : 0xd4a017, 'metal', 0, sx * (0.25 + i * 0.06));
+        gcone(0.02, 0.07, 0, -0.02, -0.9, 0xd4a017, 'metal', -Math.PI / 2 + 0.5); gsph(0.01, 0.0, 0.025, -0.82, 0xffd24a, 'glow');
+        for (const sx of [-1, 1]) gsph(0.008, sx * 0.034, 0.03, -0.18, 0xffd24a, 'glow');
+      } },
+  ],
+  pistol: [
+    { id: 'lunar', name: 'Lunar', rar: 'epic', col: 0xe8eef8, glow: 0xaad4ff, pal: { mid: 0x6a7a96, steel: 0xffffff, dark: 0x1a2030, grip: 0x2a3552 },
+      extra: () => {
+        gcrescent(-0.0245, 0.015, -0.005, 0.03, 0xaad4ff); gbox(0.004, 0.008, 0.008, -0.0245, 0.04, 0.06, 0xffffff, 'glow', 0, 0.8); gbox(0.004, 0.006, 0.006, -0.0245, -0.01, 0.07, 0xffffff, 'glow', 0, 0.8);
+        gtorus(0.022, 0.003, 0, 0.015, -0.17, 0xaad4ff, 'glow');
+      } },
+    { id: 'revenant', name: 'Revenant', rar: 'legendary', col: 0x1a1f1a, glow: 0x39ff6a, pal: { mid: 0x0c120c, steel: 0x6a8a6a, dark: 0x050805, grip: 0x101510 },
+      extra: () => {
+        for (let i = 0; i < 5; i++) gcone(0.01, 0.04 + (i % 2) * 0.025, 0, 0.062, -0.09 + i * 0.04, 0x39ff6a, 'glow');
+        gsph(0.017, -0.026, 0.012, 0.02, 0xcfe8cf, 'poly'); gbox(0.006, 0.01, 0.014, -0.036, 0.0, 0.02, 0x0c120c); gsph(0.004, -0.04, 0.02, 0.012, 0x39ff6a, 'glow'); gsph(0.004, -0.04, 0.02, 0.028, 0x39ff6a, 'glow');
+        for (let i = 0; i < 4; i++) gtorus(0.008, 0.002, -0.0, -0.15 + i * 0.012, 0.13, 0x6a8a6a, 'metal');
+      } },
+  ],
+  revolver: [
+    { id: 'wild', name: 'Sheriff', rar: 'rare', col: 0xc9ced6, glow: 0xffd24a, pal: { mid: 0x8a6a40, steel: 0xffffff, dark: 0x3a3026, wood: 0x6b3a1a },
+      extra: () => {
+        for (let i = 0; i < 5; i++) gbox(0.003, 0.05, 0.004, -0.0235, 0.0, -0.01 + i * 0.022, 0x3a3026, 'metal', 0.5);
+        for (const z of [-0.12, -0.2, -0.27]) gtorus(0.017, 0.004, 0, 0.026, z, 0xd9a21f, 'metal');
+        gbox(0.01, 0.034, 0.034, -0.04, -0.09, 0.12, 0xd9a21f, 'metal', 0.3, 0.8); gbox(0.01, 0.034, 0.034, -0.04, -0.09, 0.12, 0xd9a21f, 'metal', 0.3, 0.0);
+      } },
+    { id: 'hell', name: 'Hellfire', rar: 'legendary', col: 0x1a0d0d, glow: 0xff5a14, pal: { mid: 0x2a1010, steel: 0xaa3a1a, dark: 0x0a0505, wood: 0x2a0d0d },
+      extra: () => {
+        for (let i = 0; i < 5; i++) gcone(0.012, 0.05 + (i % 3) * 0.02, 0, 0.04, -0.1 - i * 0.04, 0xff5a14, 'glow', 0.15);
+        gtorus(0.037, 0.004, 0, 0.012, -0.03, 0xff5a14, 'glow'); gcyl(0.0375, 0.012, 0, 0.012, 0.0, 0xff5a14, 'glow');
+        for (const sx of [-1, 1]) gcone(0.008, 0.05, sx * 0.01, 0.07, 0.1, 0x1a0d0d, 'metal', 0.2, sx * 0.4);
+      } },
+  ],
+};
+const gskinOf = (id) => { const l = GSKINS[id]; const k = prefs.models && prefs.models[id]; return l && k ? (l.find((s) => s.id === k) || null) : null; };
 const EMOJIS = ['🎯', '🐺', '🦅', '🐉', '💀', '⚡', '🧠', '🦊'];
-const prefs = { primary: 'ar', secondary: 'pistol', melee: 'katana', admin: 'admin', diff: 'normal', time: 180, sens: 1, bob: 1, name: 'YOU', emoji: '🎯' };
+const prefs = { primary: 'ar', secondary: 'pistol', melee: 'katana', admin: 'admin', diff: 'normal', time: 180, sens: 1, bob: 1, name: 'YOU', emoji: '🎯', skins: {}, models: {}, cross: '#ffffff', keys: {} };
 try {
   const o = JSON.parse(localStorage.getItem('ab_prefs') || '{}');
   for (const k of Object.keys(prefs)) if (o[k] !== undefined && typeof o[k] === typeof prefs[k]) prefs[k] = o[k];
@@ -985,6 +1112,10 @@ try {
   prefs.sens = Math.max(0.3, Math.min(2.5, prefs.sens));
   prefs.bob = Math.max(0, Math.min(2, prefs.bob));
   if (![60, 120, 180, 300].includes(prefs.time)) prefs.time = 180;
+  if (!prefs.skins || typeof prefs.skins !== 'object') prefs.skins = {};
+  for (const k of Object.keys(prefs.skins)) if (!SKINS[prefs.skins[k]]) delete prefs.skins[k];
+  if (!prefs.models || typeof prefs.models !== 'object') prefs.models = {};
+  for (const k of Object.keys(prefs.models)) if (!GSKINS[k] || !GSKINS[k].some((x) => x.id === prefs.models[k])) delete prefs.models[k];
 } catch (e) { /* ignore */ }
 function savePrefs() { try { localStorage.setItem('ab_prefs', JSON.stringify(prefs)); } catch (e) { /* ignore */ } }
 const inv = { cur: 0, last: 1, store: {} };
@@ -1030,75 +1161,353 @@ function refillAmmo() {
 }
 playerInfo.name = prefs.name; playerInfo.emoji = prefs.emoji;
 
-/* ---- map picker (shown before every match) ---- */
+/* ================= MENU: home / loadout / controls / online / settings ================= */
+const menuEl = $('menu');
+const ovEl = $('overlay');
+let curScreen = 'home';
+const esc = (t) => String(t).replace(/[<>&"]/g, '');
+const hex6 = (n) => '#' + (n >>> 0).toString(16).padStart(6, '0');
+
+/* ---- inline icons ---- */
+const ICON = {
+  gun: (c = '#9fb0c8') => `<svg viewBox="0 0 120 50" width="100%" height="100%"><path d="M4 18h70l6-7h24v9l-8 4H78l-6 20H56l3-20H4z" fill="${c}" stroke="#0a0d14" stroke-width="2" stroke-linejoin="round"/><rect x="82" y="23" width="12" height="3" fill="#0a0d14" opacity=".5"/></svg>`,
+  blade: (c = '#dfe6ee', g = '#ffb347') => `<svg viewBox="0 0 120 50" width="100%" height="100%"><path d="M8 40 74 12l18-3-6 14-62 21z" fill="${c}" stroke="#0a0d14" stroke-width="2" stroke-linejoin="round"/><path d="M12 40 80 14" stroke="${g}" stroke-width="1.6" opacity=".8"/><rect x="88" y="5" width="6" height="26" rx="2" transform="rotate(28 91 18)" fill="#3a3f4a" stroke="#0a0d14" stroke-width="2"/><rect x="2" y="39" width="22" height="8" rx="3" transform="rotate(-24 13 43)" fill="#5a3a22" stroke="#0a0d14" stroke-width="2"/></svg>`,
+  skins: `<svg viewBox="0 0 40 40"><path d="M3 20h20l3-4h8v6l-4 3h-7l-3 8h-5l2-8H3z" fill="#c06bff" stroke="#0a0d14" stroke-width="1.5" stroke-linejoin="round"/><path d="M31 4l1.8 4.2L37 10l-4.2 1.8L31 16l-1.8-4.2L25 10l4.2-1.8z" fill="#ffd24a" stroke="#0a0d14" stroke-width="1"/></svg>`,
+  wraps: `<svg viewBox="0 0 40 40"><rect x="4" y="9" width="32" height="22" rx="5" fill="#1b2438" stroke="#3de0ff" stroke-width="2"/><path d="M4 26 22 9h8L8 31zM18 31 34 15v8L26 31z" fill="#3de0ff" opacity=".85"/><path d="M4 14 9 9h6L4 20z" fill="#ff9a2e"/></svg>`,
+};
+const mixc = (c, t, k) => { const r = ((c >> 16) & 255) * (1 - k) + ((t >> 16) & 255) * k, g = ((c >> 8) & 255) * (1 - k) + ((t >> 8) & 255) * k, b = (c & 255) * (1 - k) + (t & 255) * k; return ((r << 16) | (g << 8) | b) >>> 0; };
+const wIcon = (id) => { const w = WEAPONS[id]; return w.melee ? ICON.blade(hex6(mixc(w.col, 0xdfe6ee, 0.4)), hex6(w.glow || 0xffb347)) : ICON.gun(hex6(mixc(w.col, 0xb4c2da, 0.6))); };
+
+/* ---- 3D preview renderer (queued so the menu never freezes) ---- */
+const skinPv = {};
+function renderGunPreview(id) {
+  try {
+    if (!skinPv.scene) {
+      const sc = new THREE.Scene();
+      sc.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.6));
+      const dl = new THREE.DirectionalLight(0xffffff, 2.4); dl.position.set(-2, 3, 3); sc.add(dl);
+      const dl2 = new THREE.DirectionalLight(0x88aaff, 1.0); dl2.position.set(3, 1, -2); sc.add(dl2);
+      const rt = new THREE.WebGLRenderTarget(300, 150); rt.texture.colorSpace = THREE.SRGBColorSpace;
+      Object.assign(skinPv, { scene: sc, rt, cam: new THREE.PerspectiveCamera(24, 2, 0.05, 20), grp: new THREE.Group(), cv: document.createElement('canvas') });
+      sc.add(skinPv.grp); skinPv.cv.width = 300; skinPv.cv.height = 150;
+    }
+    for (const c of gun.children.slice()) if (c !== flashMesh) gun.remove(c);
+    buildGunModel(id);
+    skinPv.grp.clear();
+    const hold = new THREE.Group();
+    for (const c of gun.children) if (c !== flashMesh) hold.add(c.clone(true));
+    hold.rotation.y = -1.15; hold.rotation.x = 0.12;
+    const box = new THREE.Box3().setFromObject(hold), ctr = new THREE.Vector3(), sz = new THREE.Vector3();
+    box.getCenter(ctr); box.getSize(sz);
+    hold.position.sub(ctr);
+    skinPv.grp.add(hold);
+    const dist = Math.max(sz.x, sz.y * 2, sz.z) * 1.9 + 0.2;
+    skinPv.cam.position.set(0, 0.04, dist); skinPv.cam.lookAt(0, 0, 0);
+    const oc = renderer.getClearColor(new THREE.Color()), oa = renderer.getClearAlpha();
+    renderer.setRenderTarget(skinPv.rt); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(skinPv.scene, skinPv.cam); renderer.setRenderTarget(null); renderer.setClearColor(oc, oa);
+    const buf = new Uint8Array(300 * 150 * 4);
+    renderer.readRenderTargetPixels(skinPv.rt, 0, 0, 300, 150, buf);
+    let any = 0; for (let i = 3; i < buf.length; i += 4) if (buf[i]) { any = 1; break; }
+    if (!any) return null; // nothing drawn: the menu falls back to the icon
+    const g2 = skinPv.cv.getContext('2d'), im = g2.createImageData(300, 150);
+    for (let y = 0; y < 150; y++) im.data.set(buf.subarray((149 - y) * 1200, (150 - y) * 1200), y * 1200);
+    g2.putImageData(im, 0, 0);
+    return skinPv.cv.toDataURL('image/png');
+  } catch (e) { return null; }
+}
+
+const pvCache = {}; const pvQ = []; let pvBusy = false;
+const pvKey = (id, m, w) => id + '|' + (m || '') + '|' + (w || 'default');
+function paintPv(k, url) {
+  document.querySelectorAll('[data-pv]').forEach((el) => {
+    if (el.dataset.pv !== k) return;
+    if (url) el.innerHTML = `<img src="${url}" alt="">`;
+  });
+}
+function wantPv(id, m, w) { // returns cached url or queues a render
+  if (WEAPONS[id].melee) return null;
+  const k = pvKey(id, m, w);
+  if (k in pvCache) return pvCache[k] || null;
+  if (!pvQ.some((j) => j.k === k)) { pvQ.push({ id, m, w, k }); pumpPv(); }
+  return null;
+}
+function pumpPv() {
+  if (pvBusy) return;
+  pvBusy = true;
+  const step = () => {
+    let n = 0;
+    while (pvQ.length && n < 3) {
+      const j = pvQ.shift(); n++;
+      if (j.k in pvCache) continue;
+      const pm = prefs.models[j.id], ps = prefs.skins[j.id];
+      if (j.m) prefs.models[j.id] = j.m; else delete prefs.models[j.id];
+      if (j.w && j.w !== 'default') prefs.skins[j.id] = j.w; else delete prefs.skins[j.id];
+      let url = null;
+      try { url = renderGunPreview(j.id); } catch (e) { url = null; }
+      if (pm) prefs.models[j.id] = pm; else delete prefs.models[j.id];
+      if (ps) prefs.skins[j.id] = ps; else delete prefs.skins[j.id];
+      pvCache[j.k] = url || 0;
+      paintPv(j.k, url);
+    }
+    if (pvQ.length) requestAnimationFrame(step);
+    else { pvBusy = false; try { buildViewModel(); } catch (e) { /* ignore */ } }
+  };
+  requestAnimationFrame(step);
+}
+const modelIdOf = (id) => prefs.models[id] || '';
+const mWrap = (id) => skinOf(id);
+function pvHtml(id, m, w, key) { // an element that fills with the preview image when ready
+  const k = key || pvKey(id, m, w);
+  const url = wantPv(id, m, w);
+  return `<div class="pv" data-pv="${k}">${url ? `<img src="${url}" alt="">` : wIcon(id)}</div>`;
+}
+
+/* ---- map picker ---- */
 let selectedMap = 0;
 try {
   const m = parseInt(localStorage.getItem('ab_map') || '0', 10);
   if (m >= 0 && m < MAPS.length) selectedMap = m;
 } catch (e) { /* ignore */ }
-const mapbox = $('mapbox');
 const mapsEl = $('maps');
 function renderMaps() {
   mapsEl.innerHTML = MAPS.map((m, i) =>
     `<div class="mapcard${i === selectedMap ? ' sel' : ''}" data-i="${i}">` +
-    `<div class="sw emoji" style="background:linear-gradient(180deg, ${m.preview[0]} 0%, ${m.preview[0]} 45%, ${m.preview[1]} 46%, ${m.preview[1]} 100%)">${m.icon}</div>` +
-    `<div class="mn">${i + 1}. ${m.name}</div><div class="md">${m.blurb}</div></div>`
+    `<div class="sw emoji" style="background:linear-gradient(180deg, ${m.preview[0]} 0%, ${m.preview[0]} 48%, ${m.preview[1]} 49%, ${m.preview[1]} 100%)">${m.icon}</div>` +
+    `<div class="mn">${esc(m.name.toUpperCase())}</div><div class="md">${m.blurb}</div></div>`
   ).join('');
 }
 function selectMap(i) {
   if (state !== 'menu') return;
   selectedMap = i;
   applyTheme(MAPS[i].theme); // the backdrop previews the map's sky and light
-  renderMaps();
+  renderMaps(); renderPlaySub();
   try { localStorage.setItem('ab_map', String(i)); } catch (e) { /* ignore */ }
 }
 mapsEl.addEventListener('click', (e) => {
   const card = e.target && e.target.closest ? e.target.closest('.mapcard') : null;
   if (card) selectMap(parseInt(card.dataset.i, 10));
 });
-document.addEventListener('keydown', (e) => {
-  if (state !== 'menu' || locked || (e.target && e.target.tagName === 'INPUT')) return;
-  const n = parseInt(e.key, 10);
-  if (n >= 1 && n <= MAPS.length) selectMap(n - 1);
-});
 applyTheme(MAPS[selectedMap].theme);
-renderMaps();
+function renderPlaySub() {
+  const el = $('playsub');
+  if (el) el.textContent = menuEl.dataset.mode === 'pause' ? 'BACK TO THE FIGHT' : MAPS[selectedMap].name.toUpperCase() + '  /  ' + (prefs.time / 60) + ' MIN  /  ' + prefs.diff.toUpperCase();
+  $('pchipav').textContent = prefs.emoji; $('pchipname').textContent = prefs.name;
+}
 
-/* ---- options panel ---- */
+/* ---- skins / wraps helpers ---- */
+const skinOf = (id) => SKINS[(prefs.skins && prefs.skins[id]) || 'default'] ? (prefs.skins[id] || 'default') : 'default';
+
+/* ---- home: loadout summary ---- */
+function renderHome() {
+  renderMaps(); renderPlaySub();
+  $('sumload').innerHTML = [0, 1, 2].map((s) => {
+    const id = prefs[SLOTN[s]], w = WEAPONS[id], gs = gskinOf(id), wr = skinOf(id);
+    const tag = gs ? `<span style="color:${RARITY[gs.rar][1]}">${esc(gs.name)}</span>` : (wr !== 'default' ? esc(SKINS[wr].name) : '');
+    return `<div class="sl" data-tab="${s}"><div class="k">${['PRIMARY', 'SECONDARY', 'MELEE'][s]}</div>${pvHtml(id, modelIdOf(id), mWrap(id))}<b>${esc(w.name.toUpperCase())}</b><em>${tag}</em></div>`;
+  }).join('');
+}
+$('sumload').addEventListener('click', (e) => {
+  const c = e.target.closest('.sl'); if (!c) return;
+  ld.tab = parseInt(c.dataset.tab, 10); ld.sub = null; showScreen('loadout');
+});
+
+/* ---- loadout ---- */
+const ld = { tab: 0, sub: null };
+const STATS = {
+  gun: [['DAMAGE', (w) => w.dmg * w.pellets, (w) => Math.round(w.dmg) + (w.pellets > 1 ? 'x' + w.pellets : '')], ['FIRE RATE', (w) => 1 / w.rof, (w) => Math.round(1 / w.rof) + '/s'],
+    ['MAGAZINE', (w) => w.mag, (w) => w.mag], ['ACCURACY', (w) => 1 / (w.spread + 0.002), (w) => Math.round(100 - Math.min(99, w.spread * 1800)) + '%'], ['RELOAD', (w) => 1 / w.reload, (w) => w.reload.toFixed(1) + 's']],
+  melee: [['DAMAGE', (w) => w.dmg, (w) => w.dmg], ['SPEED', (w) => 1 / w.cd, (w) => (1 / w.cd).toFixed(1) + '/s'], ['REACH', (w) => w.range, (w) => w.range.toFixed(1) + 'm'], ['KNOCKBACK', (w) => w.kb, (w) => w.kb]],
+};
+const maxOf = {};
+function statMax(kind, i) {
+  const k = kind + i;
+  if (maxOf[k]) return maxOf[k];
+  let m = 0.0001;
+  for (const id in WEAPONS) { const w = WEAPONS[id]; if (w.slot > 2) continue; if (!!w.melee !== (kind === 'melee')) continue; m = Math.max(m, STATS[kind][i][1](w)); }
+  return (maxOf[k] = m);
+}
+function renderLoadout() {
+  const slot = ld.tab, cur = prefs[SLOTN[slot]];
+  const ids = Object.keys(WEAPONS).filter((k) => WEAPONS[k].slot === slot);
+  const tabs = ['PRIMARY', 'SECONDARY', 'MELEE'].map((n, i) => `<button class="tab${i === slot ? ' on' : ''}" data-tab="${i}">${n}<kbd>${i + 1}</kbd></button>`).join('');
+  const cards = ids.map((k) => {
+    const w = WEAPONS[k];
+    return `<div class="wc${k === cur ? ' on' : ''}" data-w="${k}">${pvHtml(k, modelIdOf(k), mWrap(k))}<b>${esc(w.name.toUpperCase())}</b><div class="ab">${w.ability ? esc(ABILITIES[w.ability].name) : ''}</div></div>`;
+  }).join('');
+  $('scr-loadout').innerHTML =
+    `<div class="shead"><button class="back" data-go="home">&#8592; BACK</button><h2>LOADOUT</h2><div class="tabs">${tabs}</div></div>` +
+    `<div class="sbody"><div id="ldwrap"><div id="wgrid">${cards}</div><div id="wdet">${detailHtml(cur)}</div></div></div>`;
+}
+function detailHtml(id) {
+  const w = WEAPONS[id], melee = !!w.melee, gs = gskinOf(id), wr = skinOf(id);
+  const rows = STATS[melee ? 'melee' : 'gun'].map((s, i) => `<div class="stat"><span>${s[0]}</span><i><s style="width:${Math.max(4, Math.min(100, s[1](w) / statMax(melee ? 'melee' : 'gun', i) * 100))}%"></s></i><em>${s[2](w)}</em></div>`).join('');
+  const hasSk = !!GSKINS[id], hasWr = !melee;
+  const sub = ld.sub === 'skins' && hasSk ? subSkins(id) : ld.sub === 'wraps' && hasWr ? subWraps(id) : (ld.sub ? `<div class="note">${melee ? 'Melee weapons have no skins or wraps yet.' : 'This gun has no full skins - try a wrap!'}</div>` : '');
+  return `<div class="big-pv" data-pv="${pvKey(id, modelIdOf(id), mWrap(id))}">${(() => { const u = wantPv(id, modelIdOf(id), mWrap(id)); return u ? `<img src="${u}" alt="">` : wIcon(id); })()}</div>` +
+    `<h3>${esc(w.name.toUpperCase())}</h3>` +
+    `<div><span class="tag">${melee ? 'MELEE' : ['PRIMARY', 'SECONDARY'][w.slot]}</span>${w.auto ? '<span class="tag">AUTO</span>' : ''}${w.ability ? `<span class="tag" style="color:#ffcc66">ABILITY: ${esc(ABILITIES[w.ability].name)}</span>` : ''}${gs ? `<span class="tag" style="color:${RARITY[gs.rar][1]}">${esc(gs.name.toUpperCase())}</span>` : ''}</div>` +
+    rows +
+    `<div class="cust"><button class="cb${ld.sub === 'skins' ? ' on' : ''}${hasSk ? '' : ' off'}" data-sub="skins">${ICON.skins}<span>SKINS<small>${gs ? esc(gs.name) : hasSk ? GSKINS[id].length + ' available' : 'none for this gun'}</small></span></button>` +
+    `<button class="cb${ld.sub === 'wraps' ? ' on' : ''}${hasWr ? '' : ' off'}" data-sub="wraps">${ICON.wraps}<span>WRAPS<small>${hasWr ? esc(SKINS[wr].name) : 'guns only'}</small></span></button></div>` + sub;
+}
+function subSkins(id) {
+  const items = [{ id: '', name: 'Default', rar: null }, ...GSKINS[id]];
+  return '<div id="sgrid">' + items.map((it) => {
+    const rc = it.rar ? RARITY[it.rar][1] : '#8a93a6';
+    return `<div class="sk${modelIdOf(id) === it.id ? ' on' : ''}" data-sk="${it.id}" style="--rc:${rc}">${pvHtml(id, it.id, mWrap(id))}<b>${esc(it.name)}</b><em style="color:${rc}">${it.rar ? RARITY[it.rar][0] : 'STANDARD'}</em></div>`;
+  }).join('') + '</div>';
+}
+function subWraps(id) {
+  return '<div id="sgrid">' + Object.keys(SKINS).map((k) => {
+    const s = SKINS[k];
+    return `<div class="sk${mWrap(id) === k ? ' on' : ''}" data-wr="${k}" style="--rc:${s.glow ? hex6(s.glow) : '#ffb347'}">${pvHtml(id, modelIdOf(id), k)}<b>${esc(s.name)}</b><em style="color:${s.glow ? hex6(s.glow) : '#8a93a6'}">${k === 'default' ? 'STANDARD' : 'WRAP'}</em></div>`;
+  }).join('') + '</div>';
+}
+$('scr-loadout').addEventListener('click', (e) => {
+  const t = e.target;
+  const tab = t.closest('.tab'), wc = t.closest('.wc'), cb = t.closest('.cb'), sk = t.closest('.sk');
+  if (tab) { ld.tab = parseInt(tab.dataset.tab, 10); ld.sub = null; renderLoadout(); return; }
+  if (wc) { prefs[SLOTN[ld.tab]] = wc.dataset.w; savePrefs(); if (state === 'play') { /* applies on respawn */ } renderLoadout(); return; }
+  const id = prefs[SLOTN[ld.tab]];
+  if (cb) { if (cb.classList.contains('off')) return; ld.sub = ld.sub === cb.dataset.sub ? null : cb.dataset.sub; renderLoadout(); return; }
+  if (sk) {
+    if (sk.dataset.wr !== undefined) { if (sk.dataset.wr === 'default') delete prefs.skins[id]; else prefs.skins[id] = sk.dataset.wr; }
+    else { if (sk.dataset.sk) prefs.models[id] = sk.dataset.sk; else delete prefs.models[id]; }
+    savePrefs(); try { buildViewModel(); } catch (x) { /* ignore */ }
+    const gv = $('wgrid').scrollTop, dv = $('wdet').scrollTop;
+    renderLoadout(); $('wgrid').scrollTop = gv; $('wdet').scrollTop = dv;
+    try { toast(sk.dataset.wr !== undefined ? 'WRAP EQUIPPED' : 'SKIN EQUIPPED'); } catch (x) { /* ignore */ }
+  }
+});
+
+/* ---- key bindings (rebindable) ---- */
+const ACTIONS = [
+  ['MOVEMENT', [['fwd', 'Move forward', ['KeyW']], ['back', 'Move back', ['KeyS']], ['left', 'Move left', ['KeyA']], ['right', 'Move right', ['KeyD']],
+    ['sprint', 'Sprint', ['ShiftLeft', 'ShiftRight']], ['jump', 'Jump / slide-jump', ['Space']], ['slide', 'Slide (while running)', ['KeyC']]]],
+  ['COMBAT', [['reload', 'Reload', ['KeyR']], ['nade', 'Throw grenade', ['KeyG']], ['ability', 'Weapon ability', ['KeyE']], ['swap', 'Quick-swap last weapon', ['KeyQ']]]],
+  ['WEAPONS', [['w1', 'Primary', ['Digit1']], ['w2', 'Secondary', ['Digit2']], ['w3', 'Melee', ['Digit3']], ['w4', 'Admin cannon', ['Digit4']]]],
+  ['TEAM', [['chat', 'Open chat', ['KeyT', 'Enter']], ['mic', 'Mic on / off', ['KeyV']], ['lock', 'Aim lock (admin)', ['KeyB']]]],
+];
+const ADEF = {}; ACTIONS.forEach((g) => g[1].forEach((a) => { ADEF[a[0]] = a[2]; }));
+const FIXED = [['MOUSE', [['LEFT CLICK', 'Fire / swing'], ['RIGHT CLICK', 'Aim down sights'], ['WHEEL', 'Cycle weapons']]], ['SYSTEM', [['ESC', 'Pause / back'], ['F3', 'FPS + debug'], ['F4', 'Admin panel'], ['F11', 'Fullscreen (PC app)'], ['F12', 'Dev console (PC app)']]]];
+if (!prefs.keys || typeof prefs.keys !== 'object') prefs.keys = {};
+for (const a of Object.keys(prefs.keys)) if (!ADEF[a] || typeof prefs.keys[a] !== 'string') delete prefs.keys[a];
+const bindOf = (a) => prefs.keys[a] || ADEF[a][0];
+let REV = {}, DEFSET = {}, anyRemap = false;
+function rebuildKeys() {
+  REV = {}; DEFSET = {}; anyRemap = false;
+  for (const a in ADEF) {
+    if (prefs.keys[a] && prefs.keys[a] !== ADEF[a][0]) { REV[prefs.keys[a]] = ADEF[a][0]; anyRemap = true; ADEF[a].forEach((c) => { DEFSET[c] = true; }); }
+  }
+}
+rebuildKeys();
+function keyLabel(c) {
+  if (/^Key[A-Z]$/.test(c)) return c.slice(3);
+  if (/^Digit\d$/.test(c)) return c.slice(5);
+  const m = { ShiftLeft: 'L SHIFT', ShiftRight: 'R SHIFT', Space: 'SPACE', ControlLeft: 'L CTRL', ControlRight: 'R CTRL', AltLeft: 'L ALT', AltRight: 'R ALT', Enter: 'ENTER', Tab: 'TAB', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\', ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT', CapsLock: 'CAPS' };
+  return m[c] || c.replace(/^Numpad/, 'NUM ').toUpperCase();
+}
+let capturing = null, synth = false;
+window.addEventListener('keydown', (e) => remapKey(e), true);
+window.addEventListener('keyup', (e) => remapKey(e), true);
+function remapKey(e) {
+  if (synth) return;
+  if (capturing) {
+    if (e.type !== 'keydown') { e.stopImmediatePropagation(); e.preventDefault(); return; }
+    e.stopImmediatePropagation(); e.preventDefault();
+    const c = e.code, a = capturing; capturing = null;
+    if (c !== 'Escape' && !/^F\d+$/.test(c) && c !== 'MetaLeft' && c !== 'MetaRight') {
+      let other = null;
+      for (const o in ADEF) if (o !== a && bindOf(o) === c) other = o;
+      if (other) prefs.keys[other] = bindOf(a);
+      prefs.keys[a] = c;
+      for (const o of Object.keys(prefs.keys)) if (prefs.keys[o] === ADEF[o][0]) delete prefs.keys[o];
+      savePrefs(); rebuildKeys();
+    }
+    renderControls();
+    return;
+  }
+  if (!anyRemap) return;
+  const tg = e.target && e.target.tagName;
+  if (tg === 'INPUT' || tg === 'TEXTAREA' || tg === 'SELECT') return;
+  const c = e.code;
+  const to = REV[c] !== undefined ? REV[c] : (DEFSET[c] ? '' : null);
+  if (to === null) return;
+  e.stopImmediatePropagation();
+  if (e.type === 'keydown') e.preventDefault();
+  if (!to) return;
+  synth = true;
+  try { document.dispatchEvent(new KeyboardEvent(e.type, { code: to, key: e.key, repeat: e.repeat, bubbles: true, cancelable: true })); } finally { synth = false; }
+}
+function renderControls() {
+  const grp = ACTIONS.map((g) => `<div class="kgrp"><h4>${g[0]}</h4>${g[1].map((a) => {
+    const c = bindOf(a[0]), chg = !!(prefs.keys[a[0]] && prefs.keys[a[0]] !== ADEF[a[0]][0]);
+    return `<div class="krow"><span>${a[1]}</span><button class="kc${capturing === a[0] ? ' wait' : ''}${chg ? ' chg' : ''}" data-act="${a[0]}">${capturing === a[0] ? 'PRESS A KEY...' : keyLabel(c)}</button></div>`;
+  }).join('')}</div>`).join('') +
+    FIXED.map((g) => `<div class="kgrp"><h4>${g[0]}</h4>${g[1].map((r) => `<div class="krow"><span>${r[1]}</span><span class="kc fixed">${r[0]}</span></div>`).join('')}</div>`).join('');
+  $('scr-controls').innerHTML =
+    `<div class="shead"><button class="back" data-go="home">&#8592; BACK</button><h2>CONTROLS</h2><button class="ghost" id="keyreset" style="margin-left:auto">RESET TO DEFAULT</button></div>` +
+    `<div class="sbody"><div id="ctl"><div id="keycols">${grp}</div><div id="tpanel"><div class="kgrp"><h4>TOUCH (PHONE)</h4><div class="tp">` +
+    [['&#9673;', 'FIRE - hold to shoot'], ['&#9650;', 'JUMP'], ['&#9678;', 'AIM down sights'], ['&#9660;', 'SLIDE'], ['&#10227;', 'RELOAD'], ['&#9679;', 'NADE - grenade'], ['&#10022;', 'SKILL - weapon ability'], ['1-4', 'Weapon slots'], ['&#10074;&#10074;', 'PAUSE - menu'], ['AIM+', 'Balanced aim assist'], ['AUTO', 'Auto-shoot on target']].map((r) => `<span>${r[0]}</span><div>${r[1]}</div>`).join('') +
+    `</div></div><div class="note">PC: click a key box, then press the key you want. Pressing a key that is already used swaps the two. Esc cancels. Orange = changed.<br>Phone: left thumb stick moves, drag on the right half to look.</div></div></div></div>`;
+}
+$('scr-controls').addEventListener('click', (e) => {
+  const b = e.target.closest('.kc[data-act]');
+  if (b) { capturing = capturing === b.dataset.act ? null : b.dataset.act; renderControls(); return; }
+  if (e.target.id === 'keyreset') { prefs.keys = {}; savePrefs(); rebuildKeys(); capturing = null; renderControls(); try { toast('CONTROLS RESET'); } catch (x) { /* ignore */ } }
+});
+
+/* ---- settings ---- */
 const optbox = $('optbox');
+const XH = ['#ffffff', '#3dff7a', '#3de0ff', '#ff4d4d', '#ffd24a', '#ff6bd6'];
+function applyCross() { document.documentElement.style.setProperty('--xh', prefs.cross); }
 function renderOpts() {
-  const sel = (slot) => Object.keys(WEAPONS).filter((k) => WEAPONS[k].slot === slot)
-    .map((k) => { const w = WEAPONS[k]; const st = w.melee ? `${w.dmg} dmg` : `${w.dmg}${w.pellets > 1 ? 'x' + w.pellets : ''} dmg, ${w.mag} rds`; return `<option value="${k}"${prefs[SLOTN[slot]] === k ? ' selected' : ''}>${w.name} (${st})${w.ability ? ' [' + ABILITIES[w.ability].name + ']' : ''}</option>`; }).join('');
-  const diffBtns = Object.keys(DIFFS).map((k) => `<button class="opt${prefs.diff === k ? ' on' : ''}" data-diff="${k}">${k.toUpperCase()}</button>`).join('');
-  const timeBtns = [60, 120, 180, 300].map((t) => `<button class="opt${prefs.time === t ? ' on' : ''}" data-time="${t}">${t / 60} MIN</button>`).join('');
+  const chips = (obj, cur, attr, fmt) => obj.map((k) => `<button class="chip${String(cur) === String(k) ? ' on' : ''}" data-${attr}="${k}">${fmt(k)}</button>`).join('');
   optbox.innerHTML =
-    `<div class="orow"><b>BOT DIFFICULTY</b>${diffBtns}</div>` +
-    `<div class="orow"><b>MATCH LENGTH</b>${timeBtns}</div>` +
-    `<div class="orow"><b>PRIMARY</b><select data-slot="0">${sel(0)}</select><b>SECONDARY</b><select data-slot="1">${sel(1)}</select><b>MELEE</b><select data-slot="2">${sel(2)}</select></div>` +
-    `<div class="orow"><b>NAME</b><input id="pname" maxlength="10" value="${prefs.name.replace(/[<>&"]/g, '')}"><b>AVATAR</b><select id="pemoji">${EMOJIS.map((e) => `<option${e === prefs.emoji ? ' selected' : ''}>${e}</option>`).join('')}</select></div>` +
-    `<div class="orow"><b>MOUSE SENS</b><input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="${prefs.sens}"><b>VIEW BOB</b><input type="range" id="bobs" min="0" max="2" step="0.1" value="${prefs.bob}"></div>`;
+    `<div class="srow"><b>PLAYER NAME</b><input id="pname" maxlength="10" value="${esc(prefs.name)}"></div>` +
+    `<div class="srow"><b>AVATAR</b>${EMOJIS.map((e) => `<button class="chip av emoji${e === prefs.emoji ? ' on' : ''}" data-emo="${e}">${e}</button>`).join('')}</div>` +
+    `<div class="srow"><b>BOT DIFFICULTY</b>${chips(Object.keys(DIFFS), prefs.diff, 'diff', (k) => k.toUpperCase())}</div>` +
+    `<div class="srow"><b>MATCH LENGTH</b>${chips([60, 120, 180, 300], prefs.time, 'time', (t) => t / 60 + ' MIN')}</div>` +
+    `<div class="srow"><b>MOUSE / LOOK SENS</b><input type="range" id="sens" min="0.3" max="2.5" step="0.05" value="${prefs.sens}"><em id="sensv">${(+prefs.sens).toFixed(2)}</em></div>` +
+    `<div class="srow"><b>VIEW BOB</b><input type="range" id="bobs" min="0" max="2" step="0.1" value="${prefs.bob}"><em id="bobv">${(+prefs.bob).toFixed(1)}</em></div>` +
+    `<div class="srow"><b>CROSSHAIR</b>${XH.map((c) => `<button class="swatch${prefs.cross === c ? ' on' : ''}" data-xh="${c}" style="background:${c};color:${c}"></button>`).join('')}</div>`;
 }
 optbox.addEventListener('click', (e) => {
   const b = e.target && e.target.closest ? e.target.closest('button') : null;
   if (!b) return;
   if (b.dataset.diff) prefs.diff = b.dataset.diff;
   if (b.dataset.time) prefs.time = parseInt(b.dataset.time, 10);
-  savePrefs(); renderOpts();
-});
-optbox.addEventListener('change', (e) => {
-  const t = e.target;
-  if (t.dataset && t.dataset.slot !== undefined) prefs[SLOTN[parseInt(t.dataset.slot, 10)]] = t.value;
-  if (t.id === 'pemoji') { prefs.emoji = t.value; playerInfo.emoji = t.value; }
-  savePrefs();
+  if (b.dataset.emo) { prefs.emoji = b.dataset.emo; playerInfo.emoji = b.dataset.emo; }
+  if (b.dataset.xh) { prefs.cross = b.dataset.xh; applyCross(); }
+  savePrefs(); renderOpts(); renderPlaySub();
 });
 optbox.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.id === 'sens') prefs.sens = parseFloat(t.value) || 1;
-  if (t.id === 'bobs') prefs.bob = parseFloat(t.value);
-  if (t.id === 'pname') { prefs.name = (t.value.trim() || 'YOU').slice(0, 10); playerInfo.name = prefs.name; }
+  if (t.id === 'sens') { prefs.sens = parseFloat(t.value) || 1; $('sensv').textContent = (+prefs.sens).toFixed(2); }
+  if (t.id === 'bobs') { prefs.bob = parseFloat(t.value); $('bobv').textContent = (+prefs.bob).toFixed(1); }
+  if (t.id === 'pname') { prefs.name = (t.value.trim() || 'YOU').slice(0, 10); playerInfo.name = prefs.name; renderPlaySub(); }
   savePrefs();
 });
-renderOpts();
+applyCross();
+
+/* ---- navigation ---- */
+function showScreen(s) {
+  curScreen = s; capturing = null;
+  menuEl.dataset.screen = s;
+  if (s === 'home') renderHome();
+  if (s === 'loadout') renderLoadout();
+  if (s === 'controls') renderControls();
+  if (s === 'settings') renderOpts();
+}
+function setMode(m) { menuEl.dataset.mode = m; showScreen('home'); }
+ovEl.addEventListener('click', (e) => {
+  const g = e.target.closest ? e.target.closest('[data-go]') : null;
+  if (g) { showScreen(g.dataset.go); return; }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && !locked && curScreen !== 'home' && !capturing) showScreen('home');
+});
+renderHome();
 
 /* ---- online play: PeerJS (WebRTC) with the host relaying, PC and phone together ---- */
 const net = { on: false, host: false, client: false, peer: null, conns: new Map(), conn: null, myId: 'H', code: '', remotes: new Map(), nextId: 0, sendT: 0, timeT: 0, pending: null };
@@ -1160,7 +1569,7 @@ function netHandle(m) {
     case 'join': addRemote(m.id, m.name, m.emoji, m.pid); if (state === 'menu') netStatus(netPlayers() + '  -  START when ready'); break;
     case 'leave': removeRemote(m.id); break;
     case 'st': if (r) { r.st = m; if (r.bot) r.bot.netT = m; } break;
-    case 'shot': if (r && state === 'play') spawnBullet(new CANNON.Vec3(m.p[0], m.p[1], m.p[2]), new CANNON.Vec3(m.v[0], m.v[1], m.v[2]), r.info, m.d); break;
+    case 'shot': if (r && state === 'play') spawnBullet(new CANNON.Vec3(m.p[0], m.p[1], m.p[2]), new CANNON.Vec3(m.v[0], m.v[1], m.v[2]), r.info, m.d, null, !!m.w); break;
     case 'hit': if (r && m.to === net.myId && state === 'play') hurtPlayer(m.dmg, r.info, r.st ? { x: r.st.x, z: r.st.z } : null); break;
     case 'died': { const v = infoOf(m.id); if (v && state === 'play') registerKill(infoOf(m.k) || v, v, m.kind || 'bullet'); break; }
     case 'time': if (state === 'play') roundT = m.r; break;
@@ -1578,12 +1987,13 @@ function tracerMat(info) {
   if (!m) { m = new THREE.MeshBasicMaterial({ color: info.isPlayer ? 0xffe9a0 : info.accent }); tracerMats.set(info, m); }
   return m;
 }
-function spawnBullet(pos, vel, owner, dmg, origin) {
-  if (net.on && owner === playerInfo) net.send({ t: 'shot', p: [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)], v: [+vel.x.toFixed(1), +vel.y.toFixed(1), +vel.z.toFixed(1)], d: dmg });
+function spawnBullet(pos, vel, owner, dmg, origin, ghost) {
+  if (owner === playerInfo && admin.wall) ghost = true;
+  if (net.on && owner === playerInfo) net.send({ t: 'shot', w: ghost ? 1 : 0, p: [+pos.x.toFixed(2), +pos.y.toFixed(2), +pos.z.toFixed(2)], v: [+vel.x.toFixed(1), +vel.y.toFixed(1), +vel.z.toFixed(1)], d: dmg });
   const mesh = new THREE.Mesh(owner.isPlayer ? tracerGeoP : tracerGeoE, tracerMat(owner));
   mesh.visible = !owner.isPlayer;
   scene.add(mesh);
-  bullets.push({ pos, vel, owner, dmg, life: 3, age: 0, mesh, origin: origin || pos.clone() });
+  bullets.push({ pos, vel, owner, dmg, life: 3, age: 0, mesh, origin: origin || pos.clone(), ghost: !!ghost });
 }
 function removeBullet(i) {
   scene.remove(bullets[i].mesh);
@@ -1599,7 +2009,7 @@ function updateBullets(dt) {
     const prev = b.pos.clone();
     b.vel.y -= GRAV * dt; // bullet drop
     const next = prev.vadd(b.vel.scale(dt));
-    const mask = b.owner.isPlayer ? GRP.STATIC | GRP.PROP | GRP.ENEMY | GRP.RAG : GRP.STATIC | GRP.PROP | GRP.ENEMY;
+    const mask = b.ghost ? (b.owner.isPlayer ? GRP.ENEMY | GRP.RAG : 0) : b.owner.isPlayer ? GRP.STATIC | GRP.PROP | GRP.ENEMY | GRP.RAG : GRP.STATIC | GRP.PROP | GRP.ENEMY;
     const hit = rayCast(prev, next, mask);
     const end = hit ? hit.point : next;
 
@@ -2551,7 +2961,7 @@ function meleeSwing(w) {
   }
 }
 
-const admin = { open: false, auth: false, god: false, ammo: false, aim: false, kill: false, lock: false, speed: false, jump: false, freeze: false };
+const admin = { open: false, auth: false, wall: false, god: false, ammo: false, aim: false, kill: false, lock: false, speed: false, jump: false, freeze: false };
 const ADMIN_CODE = 'adminpanelf2p';
 const shotSnds = {};
 function customShot(id) {
@@ -2818,9 +3228,7 @@ function updatePlayer(dt) {
 function startMatch() {
   ROUND_TIME = net.client && net.pending ? net.pending.time : prefs.time;
   buildMap(MAPS[selectedMap]);
-  mapbox.style.display = 'none';
-  optbox.style.display = 'none';
-  $('netbox').style.display = 'none';
+  menuEl.dataset.mode = 'pause'; menuEl.dataset.screen = 'home';
   resetInventory();
   hud.wave.textContent = 'FREE FOR ALL - ' + MAPS[selectedMap].name;
   state = 'play';
@@ -2867,8 +3275,7 @@ function endMatch() {
     `${win.isPlayer ? 'YOU WIN!' : win.name.toUpperCase() + ' WINS'}<br><span style="font-size:18px">You finished #${myRank} with ${playerInfo.kills} kills &nbsp;|&nbsp; Best ever: ${bestKills}</span>`;
   hud.results.innerHTML =
     `<table class="res emoji"><tr><th>#</th><th></th><th>PLAYER</th><th>KILLS</th><th>DEATHS</th></tr>${rows}</table>`;
-  hud.controls.style.display = 'none';
-  hud.ovcta.textContent = 'CLICK TO PLAY AGAIN';
+  menuEl.dataset.mode = 'over'; menuEl.dataset.screen = 'home';
   hud.overlay.classList.remove('hidden');
 }
 
@@ -2902,19 +3309,17 @@ document.addEventListener('pointerlockchange', () => {
     hud.overlay.classList.add('hidden');
     if (state === 'menu') startMatch();
   } else if (state === 'play') {
-    hud.ovsub.textContent = 'PAUSED';
-    hud.ovcta.textContent = 'CLICK TO RESUME';
+    hud.ovsub.textContent = 'PAUSED - loadout changes apply when you respawn';
+    hud.ovcta.innerHTML = 'RESUME<small id="playsub"></small>';
     hud.results.innerHTML = '';
-    hud.controls.style.display = '';
+    setMode('pause');
     hud.overlay.classList.remove('hidden');
     $('roombox').style.display = net.client ? 'none' : 'block';
-    optbox.style.display = '';
-    hud.ovsub.textContent = 'PAUSED - loadout changes apply when you respawn';
     clearInput();
   }
 });
 hud.overlay.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#maps, #optbox, #netbox, #roombox, #adminbtn')) return; // picking a map doesn't start the match
+  if (!(e.target && e.target.closest && e.target.closest('[data-start]'))) return; // only the PLAY / RESUME button starts the match
   ac();
   if (state === 'over') { location.reload(); return; }
   const p = renderer.domElement.requestPointerLock();
@@ -2922,14 +3327,12 @@ hud.overlay.addEventListener('click', (e) => {
 });
 /* ---- touch / Android bridge (used by mobile.js; harmless on desktop) ---- */
 function showPause() {
-  hud.ovsub.textContent = 'PAUSED';
-  hud.ovcta.textContent = 'TAP TO RESUME';
+  hud.ovsub.textContent = 'PAUSED - loadout changes apply when you respawn';
+  hud.ovcta.innerHTML = 'RESUME<small id="playsub"></small>';
   hud.results.innerHTML = '';
-  hud.controls.style.display = '';
+  setMode('pause');
   hud.overlay.classList.remove('hidden');
   $('roombox').style.display = net.client ? 'none' : 'block';
-  optbox.style.display = '';
-  hud.ovsub.textContent = 'PAUSED - loadout changes apply when you respawn';
   clearInput();
 }
 window.AB = {
@@ -2981,7 +3384,7 @@ document.addEventListener('mouseup', (e) => {
   if (e.button === 2) player.ads = false;
 });
 const adminEl = $('admin');
-const ADMIN_TOGGLES = [['god', 'God mode (no damage)'], ['ammo', 'Infinite ammo'], ['aim', 'Aimbot (snaps to nearest enemy on shot)'], ['lock', 'AIM LOCK on nearest person (hotkey B)'], ['kill', 'One-hit kills'], ['speed', 'Super speed'], ['jump', 'Super jump'], ['freeze', 'Freeze bots']];
+const ADMIN_TOGGLES = [['god', 'God mode (no damage)'], ['ammo', 'Infinite ammo'], ['aim', 'Aimbot (snaps to nearest enemy on shot)'], ['lock', 'AIM LOCK on nearest person (hotkey B)'], ['kill', 'One-hit kills'], ['speed', 'Super speed'], ['jump', 'Super jump'], ['freeze', 'Freeze bots'], ['wall', 'Shoot through walls']];
 function renderAdmin() {
   if (!admin.auth) {
     adminEl.innerHTML = '<h3>ADMIN PANEL</h3><input id="acode" type="password" placeholder="Enter code" autocomplete="off"><button id="ago">UNLOCK</button><div id="amsg"></div><small>F4 to close</small>';
@@ -3096,7 +3499,19 @@ function gtex(kind) {
     }
   }, 1, 1));
 }
+let SKIN = null, SKIN_FROM = -1;
+function skinMat(slot, kind) {
+  const key = 'skin' + SKIN.id + slot + kind;
+  if (GMATS[key]) return GMATS[key];
+  const o = { color: SKIN[slot], roughness: SKIN.rough, metalness: kind === 'poly' ? Math.min(SKIN.metal, 0.4) : SKIN.metal, map: skinTex(SKIN.tex) };
+  if (SKIN.emissiveMap) { o.emissive = SKIN.glow; o.emissiveMap = skinTex(SKIN.tex); o.emissiveIntensity = 1.3; }
+  return (GMATS[key] = new THREE.MeshStandardMaterial(o));
+}
 function gmat(color, kind) {
+  if (SKIN && SKIN.id !== 'default' && kind !== 'glow') {
+    if (color === SKIN_FROM) return skinMat('body', kind);
+    if (color === G_MID) return skinMat('mid', kind);
+  }
   const key = kind + color;
   if (GMATS[key]) return GMATS[key];
   const opt = kind === 'metal' ? { color, roughness: 0.32, metalness: 0.9, map: gtex('metal'), envMapIntensity: 1.2 }
@@ -3196,7 +3611,14 @@ function gcyl(rFront, len, x, y, z, color, kind = 'metal', rBack = rFront) {
   (gParent || gun).add(m);
   return m;
 }
-const G_DARK = 0x16171b, G_MID = 0x2a2c32, G_LIGHT = 0x4a4d55, G_STEEL = 0x9aa0aa, G_WOOD = 0x6b4426, G_GRIP = 0x1f2024;
+const GPAL0 = { dark: 0x16171b, mid: 0x2a2c32, light: 0x4a4d55, steel: 0x9aa0aa, wood: 0x6b4426, grip: 0x1f2024 };
+let G_DARK = GPAL0.dark, G_MID = GPAL0.mid, G_LIGHT = GPAL0.light, G_STEEL = GPAL0.steel, G_WOOD = GPAL0.wood, G_GRIP = GPAL0.grip;
+function gSetPal(p) { const o = Object.assign({}, GPAL0, p || {}); G_DARK = o.dark; G_MID = o.mid; G_LIGHT = o.light; G_STEEL = o.steel; G_WOOD = o.wood; G_GRIP = o.grip; }
+function gcone(r, h, x, y, z, color, kind = 'metal', rx = 0, rz = 0) { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), gmat(color, kind)); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); (gParent || gun).add(m); return m; }
+function gtorus(R, t, x, y, z, color, kind = 'metal', arc = Math.PI * 2) { const m = new THREE.Mesh(new THREE.TorusGeometry(R, t, 6, 20, arc), gmat(color, kind)); m.position.set(x, y, z); (gParent || gun).add(m); return m; }
+function gsph(r, x, y, z, color, kind = 'metal') { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), gmat(color, kind)); m.position.set(x, y, z); (gParent || gun).add(m); return m; }
+function gdisc(r, th, x, y, z, color, kind = 'metal') { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, th, 14), gmat(color, kind)); m.rotation.z = Math.PI / 2; m.position.set(x, y, z); (gParent || gun).add(m); return m; }
+function gcrescent(x, y, z, R, color) { const m = new THREE.Mesh(new THREE.TorusGeometry(R, 0.004, 6, 24, Math.PI * 1.4), gmat(color, 'glow')); m.rotation.y = -Math.PI / 2; m.rotation.z = 0.9; m.position.set(x, y, z); (gParent || gun).add(m); return m; }
 function gRail(x, y, z0, len) { // picatinny rail with teeth
   gbox(0.022, 0.008, len, x, y, z0 - len / 2 + 0.0, G_DARK, 'metal');
   for (let i = 0; i < Math.floor(len / 0.018); i++) gbox(0.026, 0.006, 0.008, x, y + 0.006, z0 - 0.01 - i * 0.018, G_MID, 'metal');
@@ -3251,7 +3673,11 @@ function gStripe(g, len, z) {
 
 function buildGunModel(id) {
   const w = WEAPONS[id];
-  const c = w.col || 0x2a2c32, g = w.glow || 0;
+  const GS = gskinOf(id);
+  gSetPal(GS && GS.pal);
+  SKIN = Object.assign({ id: skinOf(id) }, SKINS[skinOf(id)]);
+  const c = (GS && GS.col) || w.col || 0x2a2c32, g = SKIN.glow || (GS && GS.glow) || w.glow || 0;
+  SKIN_FROM = c;
   const m = w.model || ({ ar: 'rifle', neon: 'rifle', admin: 'rifle', smg: 'smg', shotgun: 'shotgun', sniper: 'sniper', pistol: 'pistol', revolver: 'revolver' })[id] || 'pistol';
   let fz = -0.7, adsY = 0.1, adsZ = -0.4;
   GUN_HIP.set(0.24, -0.22, -0.5);
@@ -3373,6 +3799,7 @@ function buildGunModel(id) {
     else gbox(0.04, 0.012, 0.05, 0, -0.145, 0.11, G_DARK, 'metal', 0.22);
     fz = -sl / 2 - 0.05; GUN_HIP.set(0.2, -0.2, -0.42); adsY = 0.06; adsZ = -0.32;
   }
+  if (GS && GS.extra) GS.extra();
   gunExtras(id, m, g || 0xffb347);
   GUN_ADS.set(0, -adsY - 0.01, adsZ);
   if (id === 'neon') {
