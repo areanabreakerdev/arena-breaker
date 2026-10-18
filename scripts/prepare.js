@@ -34,7 +34,10 @@ html = html.replace('</head>', `<link rel="manifest" href="./manifest.webmanifes
 </head>`);
 html = html.replace('<body>', '<body>\n<div id="rot"><div><i>&#128241;</i>ROTATE YOUR PHONE<br><small style="opacity:.6;font-size:13px">Arena Breaker plays in landscape</small></div></div>');
 fs.writeFileSync(path.join(www, 'index.html'), html);
-for (const f of ['manifest.webmanifest', 'icon-192.png', 'icon-512.png']) fs.copyFileSync(path.join(root, 'web', f), path.join(www, f));
+// the web/ folder is optional (only for the home-screen web app): never fail the APK build over it
+for (const f of ['manifest.webmanifest', 'icon-192.png', 'icon-512.png']) {
+  try { fs.copyFileSync(path.join(root, 'web', f), path.join(www, f)); } catch (e) { console.log('skipped optional web/' + f); }
+}
 for (const f of ['lib/three/three.module.js', 'lib/cannon-es/cannon-es.js', 'lib/peerjs.min.js', 'index.html']) {
   if (!fs.existsSync(path.join(www, f))) throw new Error('missing ' + f);
 }
