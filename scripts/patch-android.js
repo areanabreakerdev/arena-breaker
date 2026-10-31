@@ -5,9 +5,6 @@ const app = path.join(__dirname, '..', 'android', 'app', 'src', 'main');
 const mf = path.join(app, 'AndroidManifest.xml');
 let m = fs.readFileSync(mf, 'utf8');
 if (!m.includes('screenOrientation')) m = m.replace('<activity', '<activity\n            android:screenOrientation="sensorLandscape"');
-for (const perm of ['RECORD_AUDIO', 'MODIFY_AUDIO_SETTINGS', 'INTERNET']) {
-  if (!m.includes('android.permission.' + perm)) m = m.replace('<application', '<uses-permission android:name="android.permission.' + perm + '" />\n    <application');
-}
 fs.writeFileSync(mf, m);
 const dir = path.join(app, 'java', 'com', 'arenabreaker', 'game');
 fs.mkdirSync(dir, { recursive: true });
@@ -35,19 +32,4 @@ public class MainActivity extends BridgeActivity {
     }
 }
 `);
-
-// Halloween app icon (optional: skipped if scripts/icons is missing)
-try {
-  const icons = path.join(__dirname, 'icons');
-  const res = path.join(app, 'res');
-  for (const d of fs.readdirSync(icons)) {
-    const src = path.join(icons, d), dst = path.join(res, d);
-    if (!fs.statSync(src).isDirectory()) continue;
-    fs.mkdirSync(dst, { recursive: true });
-    for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dst, f));
-  }
-  fs.mkdirSync(path.join(res, 'values'), { recursive: true });
-  fs.writeFileSync(path.join(res, 'values', 'ic_launcher_background.xml'), '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#1A0A2E</color>\n</resources>\n');
-  console.log('icon installed');
-} catch (e) { console.log('icon skipped: ' + e.message); }
 console.log('android patched');
